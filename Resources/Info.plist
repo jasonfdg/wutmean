@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.chaukam.instant-explain</string>
+    <key>CFBundleName</key>
+    <string>InstantExplain</string>
+    <key>CFBundleDisplayName</key>
+    <string>Instant Explain</string>
+    <key>CFBundleExecutable</key>
+    <string>InstantExplain</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Instant Explain needs accessibility access to capture selected text.</string>
+</dict>
+</plist>
