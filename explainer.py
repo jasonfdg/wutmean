@@ -33,5 +33,10 @@ def fetch_explanations(text: str) -> list[str]:
         ]
     )
     raw = response.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1]  # remove ```json line
+        raw = raw.rsplit("```", 1)[0]  # remove closing ```
+        raw = raw.strip()
     data = json.loads(raw)
     return data["levels"]
