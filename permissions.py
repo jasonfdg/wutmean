@@ -2,7 +2,7 @@ import sys
 
 def check_accessibility():
     """Check if this Python process has Accessibility access."""
-    from Quartz import AXIsProcessTrustedWithOptions
+    from ApplicationServices import AXIsProcessTrustedWithOptions
     from Foundation import NSDictionary
 
     options = NSDictionary.dictionaryWithObject_forKey_(

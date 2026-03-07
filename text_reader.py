@@ -1,4 +1,4 @@
-from Quartz import (
+from ApplicationServices import (
     AXUIElementCreateSystemWide,
     AXUIElementCopyAttributeValue,
 )
