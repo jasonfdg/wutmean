@@ -15,6 +15,11 @@ popup = ExplainPopup()
 
 
 def on_f5():
+    # Toggle: if popup is visible, hide it
+    if popup.is_visible:
+        popup.root.after(0, popup.hide)
+        return
+
     text = get_selected_text()
     if not text:
         return

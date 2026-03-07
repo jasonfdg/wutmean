@@ -22,6 +22,8 @@ class ExplainPopup:
         self.current_level = 2  # Start at "Contextual"
         self.loading = False
         self._on_followup = None
+        self._drag_x = 0
+        self._drag_y = 0
 
     def _configure_window(self):
         r = self.root
@@ -34,19 +36,38 @@ class ExplainPopup:
     def _build_ui(self):
         r = self.root
 
-        # Level indicator row
+        # Top bar: draggable + close button
+        top_bar = tk.Frame(r, bg=BG)
+        top_bar.pack(fill="x", padx=PADDING, pady=(PADDING, 0))
+
+        # Level indicator (left side, draggable)
         self.level_label = tk.Label(
-            r, text="", bg=BG, fg=ACCENT,
+            top_bar, text="", bg=BG, fg=ACCENT,
             font=("SF Pro Display", 11, "bold"), anchor="w"
         )
-        self.level_label.pack(fill="x", padx=PADDING, pady=(PADDING, 4))
+        self.level_label.pack(side="left", fill="x", expand=True)
+
+        # Close button (right side)
+        close_btn = tk.Label(
+            top_bar, text="  x  ", bg=BG, fg=DIM,
+            font=("SF Pro Display", 11), cursor="hand2"
+        )
+        close_btn.pack(side="right")
+        close_btn.bind("<Button-1>", lambda e: self.hide())
+        close_btn.bind("<Enter>", lambda e: close_btn.config(fg=FG))
+        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=DIM))
+
+        # Make top bar draggable
+        for widget in (top_bar, self.level_label):
+            widget.bind("<Button-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._do_drag)
 
         # Navigation hint
         self.nav_hint = tk.Label(
             r, text="<- simpler  |  harder ->  |  Esc close  |  Enter follow-up",
             bg=BG, fg=DIM, font=("SF Pro Display", 9), anchor="w"
         )
-        self.nav_hint.pack(fill="x", padx=PADDING, pady=(0, 10))
+        self.nav_hint.pack(fill="x", padx=PADDING, pady=(4, 10))
 
         # Separator
         sep = tk.Frame(r, bg="#333333", height=1)
@@ -107,6 +128,15 @@ class ExplainPopup:
         self.text_label.config(text=self.levels[idx])
         self.root.update_idletasks()
 
+    def _start_drag(self, event):
+        self._drag_x = event.x_root - self.root.winfo_x()
+        self._drag_y = event.y_root - self.root.winfo_y()
+
+    def _do_drag(self, event):
+        x = event.x_root - self._drag_x
+        y = event.y_root - self._drag_y
+        self.root.geometry(f"+{x}+{y}")
+
     def _navigate(self, direction: int):
         if not self.levels:
             return
@@ -146,6 +176,10 @@ class ExplainPopup:
             threading.Thread(
                 target=self._on_followup, args=(question,), daemon=True
             ).start()
+
+    @property
+    def is_visible(self):
+        return self.root.state() != "withdrawn"
 
     def hide(self):
         self.root.withdraw()
