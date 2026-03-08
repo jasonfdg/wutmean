@@ -249,10 +249,14 @@ actor Explainer {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let candidates = json["candidates"] as? [[String: Any]],
                   let content = candidates.first?["content"] as? [String: Any],
-                  let parts = content["parts"] as? [[String: Any]],
-                  let text = parts.first?["text"] as? String else { continue }
+                  let parts = content["parts"] as? [[String: Any]] else { continue }
 
-            fullText += text
+            // Skip thinking parts from Gemini 2.5+ models (marked with "thought": true)
+            for part in parts {
+                if part["thought"] as? Bool == true { continue }
+                guard let text = part["text"] as? String else { continue }
+                fullText += text
+            }
             streamLevel1(fullText: fullText, streamedLength: &streamedLength, hitClose: &hitLevel1Close, onStreamToken: onStreamToken)
         }
 
