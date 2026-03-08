@@ -15,6 +15,7 @@ struct Config {
     let outputLanguage: String
     let darkMode: Bool
     let fontFamily: String
+    let fontSize: Int
 
     static let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/wutmean")
@@ -65,16 +66,17 @@ struct Config {
 
         return Config(
             apiKeys: apiKeys,
-            hotkey: json["hotkey"] as? String ?? "F5",
+            hotkey: json["hotkey"] as? String ?? "F1",
             defaultLevel: json["default_level"] as? Int ?? 1,
             model: json["model"] as? String ?? "claude-sonnet-4-6",
             maxTokens: json["max_tokens"] as? Int ?? 4096,
-            hotkeyKeyCode: json["hotkey_keycode"] as? Int ?? 96,  // kVK_F5
+            hotkeyKeyCode: json["hotkey_keycode"] as? Int ?? 122,  // kVK_F1
             hotkeyModifiers: json["hotkey_modifiers"] as? Int ?? 0,
-            hotkeyDoubleTap: json["hotkey_double_tap"] as? Bool ?? false,
+            hotkeyDoubleTap: json["hotkey_double_tap"] as? Bool ?? true,
             outputLanguage: json["output_language"] as? String ?? "English",
             darkMode: json["dark_mode"] as? Bool ?? true,
-            fontFamily: json["font_family"] as? String ?? "system-mono"
+            fontFamily: json["font_family"] as? String ?? "system-mono",
+            fontSize: json["font_size"] as? Int ?? 12
         )
     }
 
@@ -90,7 +92,8 @@ struct Config {
             "hotkey_double_tap": config.hotkeyDoubleTap,
             "output_language": config.outputLanguage,
             "dark_mode": config.darkMode,
-            "font_family": config.fontFamily
+            "font_family": config.fontFamily,
+            "font_size": config.fontSize
         ]
         if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: configFile)

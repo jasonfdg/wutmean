@@ -51,7 +51,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     private var keyMonitor: Any?
 
     /// The keyCode of the configured hotkey — let it pass through to spawn new popups
-    var hotkeyKeyCode: UInt16 = 96  // default F5, updated by AppDelegate
+    var hotkeyKeyCode: UInt16 = 122  // default F1, updated by AppDelegate
 
     var onExplainTerm: ((String) -> Void)?
     var onOpenSettings: (() -> Void)?

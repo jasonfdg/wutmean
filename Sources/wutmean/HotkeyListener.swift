@@ -13,13 +13,13 @@ final class HotkeyListener {
     private let doubleTapInterval: TimeInterval = 0.4
 
     // Stored for pause/resume
-    private var currentKeyCode: UInt32 = UInt32(kVK_F5)
+    private var currentKeyCode: UInt32 = UInt32(kVK_F1)
     private var currentModifiers: UInt32 = 0
 
     // nonisolated(unsafe) — accessed from Carbon event handler on main run loop (M2)
     private nonisolated(unsafe) static var instance: HotkeyListener?
 
-    func start(keyCode: UInt32 = UInt32(kVK_F5), modifiers: UInt32 = 0, doubleTap: Bool = false) {
+    func start(keyCode: UInt32 = UInt32(kVK_F1), modifiers: UInt32 = 0, doubleTap: Bool = true) {
         HotkeyListener.instance = self
         self.doubleTapMode = doubleTap
         self.currentKeyCode = keyCode

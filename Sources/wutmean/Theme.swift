@@ -80,6 +80,7 @@ enum FontFamily: String, CaseIterable {
 enum Theme {
     static var darkMode = true
     static var fontFamily: FontFamily = .systemMono
+    static var fontSize: CGFloat = 12
 
     // Panel
     static var panelBackground: NSColor {
@@ -169,16 +170,30 @@ enum Theme {
     }
     static var relatedDot: NSColor { textTertiary }
 
-    // Typography — resolved through fontFamily
+    // Typography — resolved through fontFamily + fontSize scaling
+    //
+    // The base size is 12pt. When fontSize is different, all sizes scale proportionally.
+    // e.g. fontSize=14 → a call for size 12 returns 14, size 11 returns ~12.8
+
+    /// Scale a point size relative to the configured fontSize (base 12)
+    static func scaled(_ size: CGFloat) -> CGFloat {
+        (size / 12.0) * fontSize
+    }
+
     static func displayFont(size: CGFloat, weight: NSFont.Weight = .bold) -> NSFont {
-        fontFamily.font(size: size, weight: weight)
+        fontFamily.font(size: scaled(size), weight: weight)
     }
 
     static func bodyFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        fontFamily.font(size: size, weight: weight)
+        fontFamily.font(size: scaled(size), weight: weight)
     }
 
     static func monoFont(size: CGFloat, weight: NSFont.Weight = .medium) -> NSFont {
+        fontFamily.font(size: scaled(size), weight: weight)
+    }
+
+    /// Fixed-size font that ignores fontSize scaling (for Settings UI controls)
+    static func fixedFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         fontFamily.font(size: size, weight: weight)
     }
 }

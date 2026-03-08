@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentConfig = config
         Theme.darkMode = config.darkMode
         Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
+        Theme.fontSize = CGFloat(config.fontSize)
 
         if let icnsURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: icnsURL) {
@@ -153,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentConfig = config
         Theme.darkMode = config.darkMode
         Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
+        Theme.fontSize = CGFloat(config.fontSize)
         if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
