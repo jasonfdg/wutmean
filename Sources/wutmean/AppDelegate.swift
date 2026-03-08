@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = Config.load()
         currentConfig = config
         Theme.darkMode = config.darkMode
+        Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
 
         if let icnsURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: icnsURL) {
@@ -151,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Config.save(config)
         currentConfig = config
         Theme.darkMode = config.darkMode
+        Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
         if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
@@ -164,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         for panel in popupStack where panel.isVisible {
             panel.refreshTheme()
+            panel.refreshFonts()
         }
     }
 

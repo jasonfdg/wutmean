@@ -14,6 +14,7 @@ struct Config {
     let hotkeyDoubleTap: Bool
     let outputLanguage: String
     let darkMode: Bool
+    let fontFamily: String
 
     static let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/wutmean")
@@ -72,7 +73,8 @@ struct Config {
             hotkeyModifiers: json["hotkey_modifiers"] as? Int ?? 0,
             hotkeyDoubleTap: json["hotkey_double_tap"] as? Bool ?? false,
             outputLanguage: json["output_language"] as? String ?? "English",
-            darkMode: json["dark_mode"] as? Bool ?? true
+            darkMode: json["dark_mode"] as? Bool ?? true,
+            fontFamily: json["font_family"] as? String ?? "system-mono"
         )
     }
 
@@ -87,7 +89,8 @@ struct Config {
             "hotkey_modifiers": config.hotkeyModifiers,
             "hotkey_double_tap": config.hotkeyDoubleTap,
             "output_language": config.outputLanguage,
-            "dark_mode": config.darkMode
+            "dark_mode": config.darkMode,
+            "font_family": config.fontFamily
         ]
         if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: configFile)

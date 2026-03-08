@@ -1,7 +1,85 @@
 import Cocoa
 
+/// Available font families for user selection
+enum FontFamily: String, CaseIterable {
+    case systemMono = "system-mono"
+    case systemSans = "system-sans"
+    case systemSerif = "system-serif"
+    case systemRounded = "system-rounded"
+    case menlo = "Menlo"
+    case jetBrainsMono = "JetBrainsMono-Regular"
+    case inter = "Inter"
+
+    var displayName: String {
+        switch self {
+        case .systemMono: return "System Mono"
+        case .systemSans: return "System Sans"
+        case .systemSerif: return "System Serif"
+        case .systemRounded: return "System Rounded"
+        case .menlo: return "Menlo"
+        case .jetBrainsMono: return "JetBrains Mono"
+        case .inter: return "Inter"
+        }
+    }
+
+    /// Whether this font family is available on the current system
+    var isAvailable: Bool {
+        switch self {
+        case .systemMono, .systemSans, .systemSerif, .systemRounded:
+            return true
+        case .menlo:
+            return NSFont(name: "Menlo", size: 12) != nil
+        case .jetBrainsMono:
+            return NSFont(name: "JetBrainsMono-Regular", size: 12) != nil
+        case .inter:
+            return NSFont(name: "Inter", size: 12) != nil
+        }
+    }
+
+    /// Resolve to an NSFont at the given size and weight
+    func font(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        switch self {
+        case .systemMono:
+            return .monospacedSystemFont(ofSize: size, weight: weight)
+        case .systemSans:
+            return .systemFont(ofSize: size, weight: weight)
+        case .systemSerif:
+            if let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
+                .withDesign(.serif) {
+                return NSFont(descriptor: descriptor, size: size)
+                    ?? .systemFont(ofSize: size, weight: weight)
+            }
+            return .systemFont(ofSize: size, weight: weight)
+        case .systemRounded:
+            let descriptor = NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor
+            if let rounded = descriptor.withDesign(.rounded) {
+                return NSFont(descriptor: rounded, size: size)
+                    ?? .systemFont(ofSize: size, weight: weight)
+            }
+            return .systemFont(ofSize: size, weight: weight)
+        case .menlo, .jetBrainsMono:
+            if let font = NSFont(name: rawValue, size: size) {
+                return font
+            }
+            return .monospacedSystemFont(ofSize: size, weight: weight)
+        case .inter:
+            if let font = NSFont(name: rawValue, size: size) {
+                return font
+            }
+            // Inter is sans-serif — fall back to system sans, not mono
+            return .systemFont(ofSize: size, weight: weight)
+        }
+    }
+
+    /// All families that are actually usable on this machine
+    static var available: [FontFamily] {
+        allCases.filter { $0.isAvailable }
+    }
+}
+
 enum Theme {
     static var darkMode = true
+    static var fontFamily: FontFamily = .systemMono
 
     // Panel
     static var panelBackground: NSColor {
@@ -91,16 +169,16 @@ enum Theme {
     }
     static var relatedDot: NSColor { textTertiary }
 
-    // Typography — monospace everything
+    // Typography — resolved through fontFamily
     static func displayFont(size: CGFloat, weight: NSFont.Weight = .bold) -> NSFont {
-        .monospacedSystemFont(ofSize: size, weight: weight)
+        fontFamily.font(size: size, weight: weight)
     }
 
     static func bodyFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        .monospacedSystemFont(ofSize: size, weight: weight)
+        fontFamily.font(size: size, weight: weight)
     }
 
     static func monoFont(size: CGFloat, weight: NSFont.Weight = .medium) -> NSFont {
-        .monospacedSystemFont(ofSize: size, weight: weight)
+        fontFamily.font(size: size, weight: weight)
     }
 }

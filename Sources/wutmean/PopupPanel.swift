@@ -190,6 +190,23 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         setupOverflowMenu()
     }
 
+    func refreshFonts() {
+        levelLabel.font = Theme.displayFont(size: 12, weight: .bold)
+        keywordLabel.font = Theme.monoFont(size: 13, weight: .medium)
+        bodyText.font = Theme.bodyFont(size: 12)
+        for btn in navButtons {
+            btn.font = Theme.monoFont(size: 10.5)
+        }
+        copyButton.font = Theme.monoFont(size: 14)
+        overflowButton.font = Theme.monoFont(size: 14)
+        relatedPrefix.font = Theme.bodyFont(size: 11, weight: .medium)
+        for label in relatedLabels {
+            label.font = Theme.bodyFont(size: 11, weight: .medium)
+        }
+        if !levels.isEmpty { updateDisplay() }
+        layoutSubviews()
+    }
+
     func refreshTheme() {
         guard let container = contentView else { return }
         container.layer?.backgroundColor = Theme.panelBackground.cgColor

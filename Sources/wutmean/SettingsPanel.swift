@@ -14,6 +14,7 @@ final class SettingsPanel: NSPanel {
     private var keyRows: [KeyRow] = []
 
     private let modelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let fontPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let levelPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let languagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -54,9 +55,11 @@ final class SettingsPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    private var availableFonts: [FontFamily] = FontFamily.available
+
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 454),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -67,7 +70,7 @@ final class SettingsPanel: NSPanel {
     }
 
     private func setupUI() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 420))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 454))
         container.wantsLayer = true
         self.contentView = container
         self.containerView = container
@@ -75,7 +78,7 @@ final class SettingsPanel: NSPanel {
         let font = Theme.monoFont(size: 12, weight: .regular)
         let labelFont = Theme.monoFont(size: 12, weight: .medium)
 
-        var y: CGFloat = 370
+        var y: CGFloat = 404
         let labelX: CGFloat = 20
         let fieldX: CGFloat = 150
         let fieldW: CGFloat = 260
@@ -145,6 +148,25 @@ final class SettingsPanel: NSPanel {
         modelPopup.font = font
         modelPopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
         container.addSubview(modelPopup)
+
+        y -= gap
+
+        // Font
+        addLabel("Font:", font: labelFont, x: labelX, y: y, to: container)
+        fontPopup.font = font
+        for ff in availableFonts {
+            let item = NSMenuItem(title: ff.displayName, action: nil, keyEquivalent: "")
+            // Show each option in its own font for instant preview
+            item.attributedTitle = NSAttributedString(
+                string: ff.displayName,
+                attributes: [.font: ff.font(size: 12, weight: .regular)]
+            )
+            fontPopup.menu?.addItem(item)
+        }
+        fontPopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        fontPopup.target = self
+        fontPopup.action = #selector(fontChanged)
+        container.addSubview(fontPopup)
 
         y -= gap
 
@@ -262,6 +284,41 @@ final class SettingsPanel: NSPanel {
         cancelButton.contentTintColor = Theme.textPrimary
     }
 
+    // MARK: - Font live preview
+
+    @objc private func fontChanged() {
+        let idx = fontPopup.indexOfSelectedItem
+        guard idx >= 0, idx < availableFonts.count else { return }
+        let selected = availableFonts[idx]
+        Theme.fontFamily = selected
+        applyFonts()
+    }
+
+    /// Re-apply fonts to all controls after font family change
+    private func applyFonts() {
+        let font = Theme.monoFont(size: 12, weight: .regular)
+        let labelFont = Theme.monoFont(size: 12, weight: .medium)
+
+        for label in settingsLabels {
+            label.font = labelFont
+        }
+        for row in keyRows {
+            row.secureField.font = font
+            row.plainField.font = font
+            row.label.font = Theme.monoFont(size: 9, weight: .medium)
+        }
+        modelPopup.font = font
+        fontPopup.font = font
+        levelPopup.font = font
+        languagePopup.font = font
+        themePopup.font = font
+        hotkeyButton.font = Theme.monoFont(size: 12, weight: .medium)
+        doubleTapCheckbox.font = font
+        hintLabel.font = Theme.monoFont(size: 10, weight: .regular)
+        saveButton.font = Theme.monoFont(size: 12, weight: .bold)
+        cancelButton.font = Theme.monoFont(size: 12, weight: .medium)
+    }
+
     // MARK: - Key visibility (per-row)
 
     @objc private func toggleRowVisibility(_ sender: NSButton) {
@@ -371,6 +428,13 @@ final class SettingsPanel: NSPanel {
         }
         updateProviderLabels()
 
+        // Font family
+        let configFont = FontFamily(rawValue: config.fontFamily) ?? .systemMono
+        if let fontIdx = availableFonts.firstIndex(of: configFont) {
+            fontPopup.selectItem(at: fontIdx)
+        }
+        Theme.fontFamily = configFont
+
         levelPopup.selectItem(at: max(0, min(2, config.defaultLevel - 1)))
         if let idx = languageOptions.firstIndex(where: { $0.1 == config.outputLanguage }) {
             languagePopup.selectItem(at: idx)
@@ -478,6 +542,9 @@ final class SettingsPanel: NSPanel {
         let language = languageOptions[languagePopup.indexOfSelectedItem].1
         let isDarkMode = themePopup.indexOfSelectedItem == 0
         let doubleTap = doubleTapCheckbox.state == .on
+        let fontIdx = fontPopup.indexOfSelectedItem
+        let selectedFont = (fontIdx >= 0 && fontIdx < availableFonts.count)
+            ? availableFonts[fontIdx] : .systemMono
 
         let config = Config(
             apiKeys: keys,
@@ -489,7 +556,8 @@ final class SettingsPanel: NSPanel {
             hotkeyModifiers: Int(recordedModifiers),
             hotkeyDoubleTap: doubleTap,
             outputLanguage: language,
-            darkMode: isDarkMode
+            darkMode: isDarkMode,
+            fontFamily: selectedFont.rawValue
         )
         onSave?(config)
 
