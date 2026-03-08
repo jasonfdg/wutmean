@@ -22,7 +22,7 @@ struct Config {
     private static let legacyConfigDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/instant-explain")
     static let configFile = configDir.appendingPathComponent("config.json")
-    static let promptFile = configDir.appendingPathComponent("prompt.md")
+
     static let modelsCacheFile = configDir.appendingPathComponent("models-cache.json")
 
     /// Set to a warning message if the config file was corrupted on load
@@ -123,11 +123,6 @@ struct Config {
             try? template.write(to: configFile, atomically: true, encoding: .utf8)
             try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configFile.path)
         }
-        if !fm.fileExists(atPath: promptFile.path) {
-            if let defaultPrompt = loadDefaultPrompt() {
-                try? defaultPrompt.write(to: promptFile, atomically: true, encoding: .utf8)
-            }
-        }
     }
 
     // MARK: - Models cache
@@ -149,12 +144,7 @@ struct Config {
     // MARK: - Prompt
 
     static func loadPromptTemplate() -> String {
-        let content: String
-        if let userPrompt = try? String(contentsOf: promptFile, encoding: .utf8) {
-            content = userPrompt
-        } else if let defaultPrompt = loadDefaultPrompt() {
-            content = defaultPrompt
-        } else {
+        guard let content = loadDefaultPrompt() else {
             return defaultStandardPrompt
         }
 

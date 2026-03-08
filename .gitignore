@@ -5,3 +5,4 @@
 .swiftpm/
 *.xcodeproj/
 xcuserdata/
+Resources/AppIcon.iconset/

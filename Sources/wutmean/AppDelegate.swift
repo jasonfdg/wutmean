@@ -64,7 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "wutmean", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Edit Prompt...", action: #selector(editPrompt), keyEquivalent: "p"))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "About", action: #selector(showAbout), keyEquivalent: ""))
@@ -251,15 +250,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startExplain(text: String, context: String?, on panel: PopupPanel) {
+        guard let explainer else {
+            panel.showError("No API key configured for the selected model.\n\nGo to Settings and check your API keys.")
+            return
+        }
         let language = outputLanguage
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                guard let result = try await explainer?.explain(text: text, context: context, language: language, onStreamToken: { [weak panel] token in
+                let result = try await explainer.explain(text: text, context: context, language: language, onStreamToken: { [weak panel] token in
                     Task { @MainActor in
                         panel?.appendStreamToken(token)
                     }
-                }) else { return }
+                })
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     panel.showResult(result)
@@ -305,15 +308,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let defaultLevel = defaultLevelIndex
         panel.showLoading(text: term, defaultLevel: defaultLevel)
 
+        guard let explainer else {
+            panel.showError("No API key configured for the selected model.\n\nGo to Settings and check your API keys.")
+            return
+        }
         let language = outputLanguage
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                guard let result = try await explainer?.explain(text: term, language: language, onStreamToken: { [weak panel] token in
+                let result = try await explainer.explain(text: term, language: language, onStreamToken: { [weak panel] token in
                     Task { @MainActor in
                         panel?.appendStreamToken(token)
                     }
-                }) else { return }
+                })
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     panel.showResult(result)
@@ -662,11 +669,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startExplain(text: testText, context: nil, on: panel)
     }
 
-    @objc private func editPrompt() {
-        Config.ensureConfigExists()
-        NSWorkspace.shared.open(Config.promptFile)
-    }
-
     @objc private func openSettings() {
         let config = currentConfig ?? Config.load()
         settingsPanel.loadConfig(config)
@@ -676,7 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "wutmean"
-        alert.informativeText = "Select text anywhere, press \(hotkeyDisplayName) to get instant explanations at 3 levels: Plain, Technical, and Examples.\n\nLeft/Right arrows to switch levels.\nEsc to dismiss."
+        alert.informativeText = "Select text anywhere, press \(hotkeyDisplayName) to get instant explanations at 3 levels: Plain, Distill, and Transfer.\n\nLeft/Right arrows to switch levels.\nEsc to dismiss."
         alert.alertStyle = .informational
         alert.runModal()
     }

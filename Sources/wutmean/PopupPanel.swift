@@ -1,7 +1,7 @@
 import Cocoa
 
 final class PopupPanel: NSPanel, NSMenuDelegate {
-    private let levelNames = ["Plain", "Technical", "Examples"]
+    private let levelNames = ["Plain", "Distill", "Transfer"]
     private var currentLevel = 0
     private var levels: [String] = []
     private var relatedTerms: [String] = []
@@ -33,13 +33,15 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     // Separator line between body and bottom section
     private let separatorLine = NSView()
 
-    // Nav row (includes copy icon and overflow menu trigger)
+    // Nav row
     private let navContainer = NSView()
     private var navButtons: [NSButton] = []
     private var navTrackingAreas: [NSTrackingArea] = []
+
+    // Action buttons (keyword row, right-aligned)
     private let copyButton = NSButton()
-    private let overflowButton = NSButton()
-    private let overflowMenu = NSMenu()
+    private let googleButton = NSButton()
+    private let youtubeButton = NSButton()
 
     // Related concepts row
     private let relatedContainer = NSView()
@@ -181,13 +183,13 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         relatedContainer.addSubview(relatedPrefix)
         container.addSubview(relatedContainer)
 
-        // Nav hints container (includes copy + overflow)
+        // Nav hints container
         navContainer.wantsLayer = true
         container.addSubview(navContainer)
         setupNavHints()
 
-        // Overflow menu for search actions
-        setupOverflowMenu()
+        // Action buttons on keyword row
+        setupActionButtons(in: container)
     }
 
     func refreshFonts() {
@@ -197,8 +199,9 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         for btn in navButtons {
             btn.font = Theme.monoFont(size: 10.5)
         }
-        copyButton.font = Theme.monoFont(size: 14)
-        overflowButton.font = Theme.monoFont(size: 14)
+        copyButton.font = NSFont.systemFont(ofSize: 13)
+        googleButton.font = NSFont.systemFont(ofSize: 13)
+        youtubeButton.font = NSFont.systemFont(ofSize: 13)
         relatedPrefix.font = Theme.bodyFont(size: 11, weight: .medium)
         for label in relatedLabels {
             label.font = Theme.bodyFont(size: 11, weight: .medium)
@@ -220,7 +223,8 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         bodyText.textColor = Theme.textPrimary
         for btn in navButtons { btn.contentTintColor = Theme.textSecondary }
         copyButton.contentTintColor = Theme.textSecondary
-        overflowButton.contentTintColor = Theme.textSecondary
+        googleButton.contentTintColor = Theme.textSecondary
+        youtubeButton.contentTintColor = Theme.textSecondary
         relatedPrefix.textColor = Theme.textTertiary
         for label in relatedLabels {
             label.textColor = label.stringValue == "·" ? Theme.relatedDot : Theme.relatedText
@@ -230,9 +234,9 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
 
     private func setupNavHints() {
         let items: [(String, Selector)] = [
-            ("← simpler", #selector(navSimpler)),
+            ("← basic", #selector(navSimpler)),
             ("[esc] exit", #selector(dismissPanel)),
-            ("harder →", #selector(navHarder))
+            ("abstract →", #selector(navHarder))
         ]
 
         for (title, action) in items {
@@ -245,41 +249,34 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
             navContainer.addSubview(btn)
             navButtons.append(btn)
         }
-
-        // Copy button
-        copyButton.title = "⎘"
-        copyButton.font = Theme.monoFont(size: 14)
-        copyButton.isBordered = false
-        copyButton.contentTintColor = Theme.textSecondary
-        copyButton.wantsLayer = true
-        copyButton.alignment = .center
-        copyButton.setAccessibilityLabel("Copy explanation")
-        copyButton.target = self
-        copyButton.action = #selector(actionCopy)
-        navContainer.addSubview(copyButton)
-
-        // Overflow button
-        overflowButton.title = "⋯"
-        overflowButton.font = Theme.monoFont(size: 14)
-        overflowButton.isBordered = false
-        overflowButton.contentTintColor = Theme.textSecondary
-        overflowButton.wantsLayer = true
-        overflowButton.alignment = .center
-        overflowButton.setAccessibilityLabel("More actions")
-        overflowButton.target = self
-        overflowButton.action = #selector(showOverflowMenu(_:))
-        navContainer.addSubview(overflowButton)
     }
 
-    private func setupOverflowMenu() {
-        overflowMenu.addItem(withTitle: "Google", action: #selector(actionGoogle), keyEquivalent: "")
-        overflowMenu.addItem(withTitle: "YouTube", action: #selector(actionYouTube), keyEquivalent: "")
-        for item in overflowMenu.items { item.target = self }
+    private func setupActionButtons(in container: NSView) {
+        let buttons: [(NSButton, String, String, Selector)] = [
+            (copyButton, "doc.on.doc", "Copy explanation", #selector(actionCopy)),
+            (googleButton, "magnifyingglass", "Search Google", #selector(actionGoogle)),
+            (youtubeButton, "play.rectangle", "Search YouTube", #selector(actionYouTube))
+        ]
+
+        for (btn, symbolName, label, action) in buttons {
+            btn.bezelStyle = .inline
+            btn.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+            btn.title = ""
+            btn.imagePosition = .imageOnly
+            btn.font = NSFont.systemFont(ofSize: 13)
+            btn.isBordered = false
+            btn.contentTintColor = Theme.textSecondary
+            btn.wantsLayer = true
+            btn.setAccessibilityLabel(label)
+            btn.setAccessibilityRole(.button)
+            btn.target = self
+            btn.action = action
+            btn.isHidden = true
+            container.addSubview(btn)
+        }
     }
 
-    @objc private func showOverflowMenu(_ sender: Any?) {
-        overflowMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: overflowButton.bounds.height + 4), in: overflowButton)
-    }
+    private var actionTrackingAreas: [NSTrackingArea] = []
 
     private func installTrackingAreas() {
         // Related tracking areas (nav buttons handle hover natively)
@@ -295,11 +292,29 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
             relatedContainer.addTrackingArea(area)
             relatedTrackingAreas.append(area)
         }
+
+        // Action button hover tracking
+        guard let container = contentView else { return }
+        for area in actionTrackingAreas { container.removeTrackingArea(area) }
+        actionTrackingAreas.removeAll()
+        for btn in [copyButton, googleButton, youtubeButton] {
+            let area = NSTrackingArea(
+                rect: btn.frame,
+                options: [.mouseEnteredAndExited, .activeAlways],
+                owner: self,
+                userInfo: ["actionButton": btn]
+            )
+            container.addTrackingArea(area)
+            actionTrackingAreas.append(area)
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {
         if let label = event.trackingArea?.userInfo?["label"] as? NSTextField {
             label.textColor = Theme.relatedHover
+            NSCursor.pointingHand.push()
+        } else if let btn = event.trackingArea?.userInfo?["actionButton"] as? NSButton {
+            btn.contentTintColor = Theme.accent
             NSCursor.pointingHand.push()
         }
     }
@@ -307,6 +322,9 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     override func mouseExited(with event: NSEvent) {
         if let label = event.trackingArea?.userInfo?["label"] as? NSTextField {
             label.textColor = Theme.relatedText
+            NSCursor.pop()
+        } else if let btn = event.trackingArea?.userInfo?["actionButton"] as? NSButton {
+            btn.contentTintColor = Theme.textSecondary
             NSCursor.pop()
         }
     }
@@ -350,13 +368,13 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
 
-        // Visual + text feedback (M1: not color-only)
-        let originalTitle = copyButton.title
+        // Visual feedback: swap icon to checkmark briefly
+        let originalImage = copyButton.image
         let originalColor = copyButton.contentTintColor
-        copyButton.title = "✓"
+        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
         copyButton.contentTintColor = Theme.success
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.copyButton.title = originalTitle
+            self?.copyButton.image = originalImage
             self?.copyButton.contentTintColor = originalColor
         }
     }
@@ -410,11 +428,20 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         settingsButton.frame = NSRect(x: w - btnSize * 2 - 2, y: btnY, width: btnSize, height: btnSize)
         levelLabel.frame = NSRect(x: 10, y: h - headerH + 4, width: 300, height: 20)
 
-        // Keyword label below header
+        // Keyword label below header (leave room for action buttons on right)
         let keywordGap: CGFloat = 12
         let keywordFont = keywordLabel.font ?? Theme.monoFont(size: 13, weight: .medium)
         let keywordH = ceil(keywordFont.ascender - keywordFont.descender + keywordFont.leading) + 4
-        keywordLabel.frame = NSRect(x: 10, y: h - headerH - keywordGap - keywordH, width: w - 20, height: keywordH)
+        let actionButtonsWidth: CGFloat = 3 * 28 + 4  // 3 buttons × 28pt + gaps
+        keywordLabel.frame = NSRect(x: 10, y: h - headerH - keywordGap - keywordH, width: w - 20 - actionButtonsWidth, height: keywordH)
+
+        // Action buttons — right-aligned on keyword row
+        let btnW: CGFloat = 28
+        let keywordMidY = keywordLabel.frame.midY
+        let actionY = keywordMidY - btnW / 2
+        youtubeButton.frame = NSRect(x: w - 10 - btnW, y: actionY, width: btnW, height: btnW)
+        googleButton.frame = NSRect(x: youtubeButton.frame.minX - btnW, y: actionY, width: btnW, height: btnW)
+        copyButton.frame = NSRect(x: googleButton.frame.minX - btnW, y: actionY, width: btnW, height: btnW)
 
         // Bottom section: 2 rows, 8px bottom padding, 6px between rows
         let navY: CGFloat = 8
@@ -454,13 +481,6 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
             btn.frame = NSRect(x: x, y: 0, width: btn.frame.width, height: 18)
             x += btn.frame.width + spacing
         }
-
-        // Right-align copy + overflow icons with 44x44 hit area (M2)
-        let iconSize: CGFloat = 44
-        let rightEdge = navContainer.frame.width
-        let iconY = (18 - iconSize) / 2  // vertically center in nav row
-        overflowButton.frame = NSRect(x: rightEdge - iconSize, y: iconY, width: iconSize, height: iconSize)
-        copyButton.frame = NSRect(x: overflowButton.frame.minX - iconSize, y: iconY, width: iconSize, height: iconSize)
 
         installTrackingAreas()
     }
@@ -594,7 +614,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         isStreamingActive = true
         bodyText.isSelectable = false
         let name = levelNames[defaultLevel]
-        levelLabel.stringValue = "[ \(name) ] \(defaultLevel + 1)/3"
+        levelLabel.stringValue = "wutmean? · \(name) · \(defaultLevel + 1)/3"
 
         keywordLabel.isHidden = text.isEmpty
         bodyText.stringValue = ""
@@ -608,7 +628,8 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         }
         showEscOnly()
         copyButton.isHidden = true
-        overflowButton.isHidden = true
+        googleButton.isHidden = true
+        youtubeButton.isHidden = true
         if let offset = offsetFrom {
             setFrameOrigin(NSPoint(x: offset.x + 20, y: offset.y - 20))
         } else {
@@ -639,7 +660,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
 
     func showMaxDepthFlash() {
         let original = levelLabel.stringValue
-        levelLabel.stringValue = "[ MAX DEPTH ]"
+        levelLabel.stringValue = "wutmean? · MAX DEPTH"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.levelLabel.stringValue = original
         }
@@ -723,7 +744,8 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         self.relatedTerms = result.relatedTerms
         self.searchPhrases = result.searchPhrases
         copyButton.isHidden = false
-        overflowButton.isHidden = false
+        googleButton.isHidden = false
+        youtubeButton.isHidden = false
         layoutRelatedLabels()
         updateDisplay()
     }
@@ -735,12 +757,13 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         flushTimer?.cancel()
         flushTimer = nil
         pendingTokens = ""
-        levelLabel.stringValue = "[ ERROR ]"
+        levelLabel.stringValue = "wutmean? · ERROR"
         bodyText.stringValue = message
         resizeBodyText()
         relatedContainer.isHidden = true
         copyButton.isHidden = true
-        overflowButton.isHidden = true
+        googleButton.isHidden = true
+        youtubeButton.isHidden = true
         showEscOnly()
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
@@ -825,7 +848,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     private func updateDisplay() {
         guard !levels.isEmpty else { return }
         let name = levelNames[currentLevel]
-        levelLabel.stringValue = "[ \(name) ] \(currentLevel + 1)/3"
+        levelLabel.stringValue = "wutmean? · \(name) · \(currentLevel + 1)/3"
         if currentLevel == 2 {
             // Examples level needs attributed string for quote vs explanation styling
             bodyText.allowsEditingTextAttributes = true

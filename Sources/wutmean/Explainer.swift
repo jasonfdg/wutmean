@@ -14,7 +14,7 @@ actor Explainer {
     }
 
     struct ExplanationResult {
-        let levels: [String]  // 3 levels: Plain, Technical, Examples
+        let levels: [String]  // 3 levels: Plain, Distill, Transfer
         let relatedTerms: [String]
         let searchPhrases: [String]
     }
@@ -79,6 +79,17 @@ actor Explainer {
             throw ExplainerError.apiError(statusCode: 529, message: "API overloaded — try again shortly")
         }
 
+        if httpResponse.statusCode == 400 {
+            // Read error body for details (e.g. unsupported parameter for reasoning models)
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line
+                if errorBody.count > 500 { break }
+            }
+            let detail = errorBody.isEmpty ? "Bad request" : errorBody.prefix(200)
+            throw ExplainerError.apiError(statusCode: 400, message: "\(provider.displayName): \(detail)")
+        }
+
         guard httpResponse.statusCode == 200 else {
             throw ExplainerError.apiError(statusCode: httpResponse.statusCode, message: "\(provider.displayName) HTTP \(httpResponse.statusCode)")
         }
@@ -129,9 +140,12 @@ actor Explainer {
     }
 
     private func buildOpenAIRequest(prompt: String) throws -> URLRequest {
+        // o-series reasoning models require max_completion_tokens instead of max_tokens
+        let isReasoningModel = model.hasPrefix("o1") || model.hasPrefix("o3") || model.hasPrefix("o4")
+        let tokensKey = isReasoningModel ? "max_completion_tokens" : "max_tokens"
         let body: [String: Any] = [
             "model": model,
-            "max_tokens": maxTokens,
+            tokensKey: maxTokens,
             "stream": true,
             "messages": [
                 ["role": "user", "content": prompt]
@@ -142,7 +156,8 @@ actor Explainer {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 60
+        // Reasoning models think longer before streaming starts
+        request.timeoutInterval = isReasoningModel ? 120 : 60
         return request
     }
 
@@ -164,7 +179,9 @@ actor Explainer {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 60
+        // Gemini 2.5+ thinking models need more time for reasoning phase
+        let isThinkingModel = model.contains("2.5") || model.contains("3.")
+        request.timeoutInterval = isThinkingModel ? 120 : 60
         return request
     }
 

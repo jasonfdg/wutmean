@@ -447,6 +447,9 @@ final class SettingsPanel: NSPanel {
     // MARK: - Load / Show
 
     func loadConfig(_ config: Config) {
+        // Apply theme first — setting appearance after values clears NSSecureTextField
+        applyTheme()
+
         // Distribute keys into provider-specific fields
         for i in 0..<keyRows.count {
             setKeyValue("", for: i)
@@ -509,7 +512,7 @@ final class SettingsPanel: NSPanel {
     }
 
     func showCentered() {
-        applyTheme()
+        // Theme already applied in loadConfig (must happen before setting secure field values)
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
         guard let screen else { return }

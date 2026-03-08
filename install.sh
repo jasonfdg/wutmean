@@ -52,12 +52,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
     chmod 600 "$CONFIG_FILE"
 fi
 
-# Install default prompt template if missing
-PROMPT_FILE="${CONFIG_DIR}/prompt.md"
-if [ ! -f "$PROMPT_FILE" ]; then
-    cp "Resources/default-prompt.md" "$PROMPT_FILE"
-    echo "  Installed default prompt template to ${PROMPT_FILE}"
-fi
 
 # Clean up old app bundle
 OLD_APP="/Applications/InstantExplain.app"
@@ -72,7 +66,7 @@ open "$APP_DIR"
 echo ""
 echo "Done! ${APP_NAME} is running in your menu bar."
 echo "  - On first launch, you'll be prompted to enter your API key"
-echo "  - Press F5 with text selected to get an explanation"
+echo "  - Double-tap F1 with text selected to get an explanation"
 echo "  - Grant Accessibility access if prompted"
 echo "  - Config: ${CONFIG_FILE}"
-echo "  - Prompt: ${PROMPT_FILE}"
+echo "  - Prompt is bundled inside the app"
