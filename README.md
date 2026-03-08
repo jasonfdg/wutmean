@@ -8,7 +8,7 @@ Or you're in a terminal — Claude Code, a shell, whatever — and you see somet
 
 wutmean makes it take two seconds. Select text. Double-tap F1. A popup shows up right there with an explanation. Esc to close. You never leave what you're doing.
 
-Three levels (Plain → Technical → Examples), arrow keys to switch, related terms you can click to keep going. Anthropic, OpenAI, or Google — bring your own key. That's the whole thing.
+Three levels (Plain → Distill → Transfer), arrow keys to switch, related terms you can click to keep going. Anthropic, OpenAI, or Google — bring your own key. That's the whole thing.
 
 <!-- Replace with your actual demo GIF -->
 ![demo](https://github.com/user-attachments/assets/PLACEHOLDER-REPLACE-WITH-ACTUAL-GIF)
@@ -53,7 +53,7 @@ Requires Swift 5.9+ and macOS 13+.
 | Action | What happens |
 |--------|-------------|
 | Select text + **double-tap F1** | Explanation popup appears |
-| **← / →** arrow keys | Switch between Plain / Technical / Examples |
+| **← / →** arrow keys | Switch between Plain / Distill / Transfer |
 | Click a related term | Explain that term in the same popup |
 | **Esc** | Dismiss |
 | **⎘** | Copy current explanation |
@@ -63,15 +63,15 @@ The hotkey is configurable in Settings.
 
 ## Three levels
 
-**Plain** — No jargon. 2-3 sentences. A memorable anchor.
+**Plain** — Definition, insight, analogy, stakes. Four sentences that land the concept without jargon.
 
-**Technical** — Correct terminology, key distinctions, one common misconception addressed.
+**Distill** — One sticky-note sentence that compresses the whole idea, plus the origin story that makes it feel inevitable.
 
-**Examples** — Three examples that reveal meaning through use: one correct, one near-miss, one in context.
+**Transfer** — Three cross-domain analogies matched on causal structure, not surface resemblance. Each teaches something the others don't.
 
 ## Config
 
-Config lives at `~/.config/wutmean/config.json`. The prompt template is at `~/.config/wutmean/prompt.md` — edit it from the menu bar (Edit Prompt).
+Config lives at `~/.config/wutmean/config.json`. The prompt is bundled with the app.
 
 ## Requirements
 

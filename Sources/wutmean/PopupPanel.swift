@@ -868,48 +868,117 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         documentView.scroll(NSPoint(x: 0, y: topY))
     }
 
-    /// Style Level 3 (Examples) with quoted lines in primary color and explanations in muted color
+    /// Style Level 3 (Examples) with quoted lines in primary color and explanations in muted color.
+    /// Handles format variations across Claude, OpenAI, and Gemini models.
     private func styledExamplesText(content: String) -> NSAttributedString {
-        let baseFont = Theme.bodyFont(size: 12)
-        let baseAttrs: [NSAttributedString.Key: Any] = [
-            .font: baseFont,
+        let quoteFont = Theme.bodyFont(size: 12)
+        let quoteAttrs: [NSAttributedString.Key: Any] = [
+            .font: quoteFont,
             .foregroundColor: Theme.textPrimary
         ]
-        let explainColor = Theme.exampleExplainText
         let explainAttrs: [NSAttributedString.Key: Any] = [
             .font: Theme.bodyFont(size: 11.5, weight: .regular),
-            .foregroundColor: explainColor
+            .foregroundColor: Theme.exampleExplainText
         ]
 
-        // Paragraph style with spacing between examples
-        let exampleSpacing = NSMutableParagraphStyle()
-        exampleSpacing.paragraphSpacingBefore = 12
-
+        // Parse into example blocks — each has a sentence (quote) and explanation
+        let examples = parseExamples(content)
         let result = NSMutableAttributedString()
-        let paragraphs = content.components(separatedBy: "\n\n")
 
-        for (i, paragraph) in paragraphs.enumerated() {
-            let lines = paragraph.components(separatedBy: "\n")
-            for (j, line) in lines.enumerated() {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty else { continue }
+        for (i, example) in examples.prefix(3).enumerated() {
+            // Spacing between examples
+            if i > 0 {
+                let spacer = NSMutableParagraphStyle()
+                spacer.paragraphSpacingBefore = 16
+                var spacedAttrs = quoteAttrs
+                spacedAttrs[.paragraphStyle] = spacer
+                result.append(NSAttributedString(string: "\n" + example.sentence, attributes: spacedAttrs))
+            } else {
+                result.append(NSAttributedString(string: example.sentence, attributes: quoteAttrs))
+            }
 
-                if trimmed.hasPrefix("\"") {
-                    var attrs = baseAttrs
-                    // Add top spacing before each example's quote (except the first)
-                    if i > 0 && j == 0 {
-                        let para = NSMutableParagraphStyle()
-                        para.paragraphSpacingBefore = 14
-                        attrs[.paragraphStyle] = para
-                    }
-                    result.append(NSAttributedString(string: (result.length > 0 ? "\n" : "") + line, attributes: attrs))
-                } else {
-                    result.append(NSAttributedString(string: "\n" + line, attributes: explainAttrs))
-                }
+            if !example.explanation.isEmpty {
+                result.append(NSAttributedString(string: "\n" + example.explanation, attributes: explainAttrs))
             }
         }
 
         return result
+    }
+
+    private struct Example {
+        let sentence: String
+        let explanation: String
+    }
+
+    /// Parse level 3 content into example pairs, handling all model output formats
+    private func parseExamples(_ content: String) -> [Example] {
+        // Strategy 1: split on blank lines (standard format from all providers)
+        let paragraphs = content
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if paragraphs.count >= 3 {
+            return paragraphs.map { parseSingleExample($0) }
+        }
+
+        // Strategy 2: no blank lines — split into line pairs
+        let lines = content
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        // Check if lines alternate: quote, explanation, quote, explanation...
+        let hasQuotes = lines.contains { $0.hasPrefix("\"") }
+        if hasQuotes {
+            // Group by quote boundaries — each quote starts a new example
+            var examples: [Example] = []
+            var currentSentence = ""
+            var currentExplain: [String] = []
+            for line in lines {
+                if line.hasPrefix("\"") {
+                    if !currentSentence.isEmpty {
+                        examples.append(Example(sentence: currentSentence, explanation: currentExplain.joined(separator: "\n")))
+                    }
+                    currentSentence = line
+                    currentExplain = []
+                } else {
+                    currentExplain.append(line)
+                }
+            }
+            if !currentSentence.isEmpty {
+                examples.append(Example(sentence: currentSentence, explanation: currentExplain.joined(separator: "\n")))
+            }
+            return examples
+        }
+
+        // Strategy 3: no quotes, no blank lines — pair every 2 lines
+        if lines.count >= 6 {
+            var examples: [Example] = []
+            var i = 0
+            while i + 1 < lines.count {
+                examples.append(Example(sentence: lines[i], explanation: lines[i + 1]))
+                i += 2
+            }
+            return examples
+        }
+
+        // Fallback: treat each line as its own block
+        return lines.map { Example(sentence: $0, explanation: "") }
+    }
+
+    /// Parse a single paragraph into sentence + explanation
+    private func parseSingleExample(_ paragraph: String) -> Example {
+        let lines = paragraph.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else { return Example(sentence: "", explanation: "") }
+
+        // First line (possibly quoted) is the sentence, rest is explanation
+        let sentence = lines[0]
+        let explanation = lines.dropFirst().joined(separator: "\n")
+        return Example(sentence: sentence, explanation: explanation)
     }
 
     /// Truncate text at word boundary to fit within the given pixel width
