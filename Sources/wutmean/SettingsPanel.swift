@@ -42,6 +42,7 @@ final class SettingsPanel: NSPanel {
     var onStartRecording: (() -> Void)?
     var onStopRecording: (() -> Void)?
     var onModelsUpdated: (([APIProvider: [String]]) -> Void)?
+    var onFontPreviewChanged: (() -> Void)?
 
     private let levelOptions = [
         "1 — Plain",
@@ -187,6 +188,7 @@ final class SettingsPanel: NSPanel {
         fontSizeSlider.doubleValue = 12
         fontSizeSlider.numberOfTickMarks = 9
         fontSizeSlider.allowsTickMarkValuesOnly = true
+        fontSizeSlider.isContinuous = true
         fontSizeSlider.frame = NSRect(x: fieldX, y: y - 2, width: fieldW - 40, height: rowH)
         fontSizeSlider.target = self
         fontSizeSlider.action = #selector(fontSizeChanged)
@@ -321,6 +323,7 @@ final class SettingsPanel: NSPanel {
         let selected = availableFonts[idx]
         Theme.fontFamily = selected
         applyFonts()
+        onFontPreviewChanged?()
     }
 
     @objc private func fontSizeChanged() {
@@ -329,6 +332,7 @@ final class SettingsPanel: NSPanel {
         fontSizeLabel.stringValue = "\(Int(size))px"
         Theme.fontSize = size
         applyFonts()
+        onFontPreviewChanged?()
     }
 
     /// Re-apply fonts to all controls after font family/size change

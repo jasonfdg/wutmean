@@ -410,9 +410,11 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         settingsButton.frame = NSRect(x: w - btnSize * 2 - 2, y: btnY, width: btnSize, height: btnSize)
         levelLabel.frame = NSRect(x: 10, y: h - headerH + 4, width: 300, height: 20)
 
-        // Keyword label below header — increased gap (12px instead of 6px)
+        // Keyword label below header
         let keywordGap: CGFloat = 12
-        keywordLabel.frame = NSRect(x: 10, y: h - headerH - keywordGap - 18, width: w - 20, height: 18)
+        let keywordFont = keywordLabel.font ?? Theme.monoFont(size: 13, weight: .medium)
+        let keywordH = ceil(keywordFont.ascender - keywordFont.descender + keywordFont.leading) + 4
+        keywordLabel.frame = NSRect(x: 10, y: h - headerH - keywordGap - keywordH, width: w - 20, height: keywordH)
 
         // Bottom section: 2 rows, 8px bottom padding, 6px between rows
         let navY: CGFloat = 8
@@ -420,8 +422,8 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         let separatorY: CGFloat = relatedY + 18 + 6
         let scrollBottom: CGFloat = separatorY + 1 + 8  // increased gap above separator
 
-        // More breathing room between keyword and body (16px gap after keyword)
-        let scrollTop = h - headerH - (keywordLabel.isHidden ? 10 : keywordGap + 18 + 12)
+        // More breathing room between keyword and body
+        let scrollTop = h - headerH - (keywordLabel.isHidden ? 10 : keywordGap + keywordH + 12)
         scrollView.frame = NSRect(x: 10, y: scrollBottom, width: w - 20, height: scrollTop - scrollBottom)
 
         // Separator line

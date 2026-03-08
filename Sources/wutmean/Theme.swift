@@ -181,15 +181,16 @@ enum Theme {
     }
 
     static func displayFont(size: CGFloat, weight: NSFont.Weight = .bold) -> NSFont {
-        fontFamily.font(size: scaled(size), weight: weight)
+        fontFamily.font(size: size, weight: weight)
     }
 
+    /// Body font — the ONLY font affected by fontSize scaling
     static func bodyFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         fontFamily.font(size: scaled(size), weight: weight)
     }
 
     static func monoFont(size: CGFloat, weight: NSFont.Weight = .medium) -> NSFont {
-        fontFamily.font(size: scaled(size), weight: weight)
+        fontFamily.font(size: size, weight: weight)
     }
 
     /// Fixed-size font that ignores fontSize scaling (for Settings UI controls)

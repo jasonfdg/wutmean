@@ -1,12 +1,14 @@
 # wutmean
 
-You're reading something — a paper, a codebase, a contract — and you hit a word you don't know.
+You're deep in a paper, a codebase, a contract — and you hit a word you don't know.
 
-What happens next is stupid. You copy the word. You switch to ChatGPT, or Google, or a new tab. You paste it. You wait. You read the answer. You switch back. You find your place again. The context you were building in your head is gone. For one word.
+So you copy it. Cmd+Tab to a browser. Open ChatGPT or Google. Paste. Wait. Read. Cmd+Tab back. Find where you were. The thread you were holding in your head? Gone. For one word.
 
-wutmean exists because that friction is insane for 2025. Select the text. Double-tap a key. A popup appears instantly with an explanation — right where you are, no context switch, no tab juggling. Hit Esc and you're back to reading. The whole thing takes two seconds.
+Or you're in a terminal — Claude Code, a shell, whatever — and you see something you want to look up. Now you're either scrolling to the bottom to ask a throwaway question and losing your place, or you're opening a whole new window just to get a one-line answer. Either way you've broken your flow for something that should take two seconds.
 
-Three levels of explanation (Plain → Technical → Examples), arrow keys to switch between them, related terms you can click to go deeper. Works with Anthropic, OpenAI, or Google models. That's it.
+wutmean makes it take two seconds. Select text. Double-tap F1. A popup shows up right there with an explanation. Esc to close. You never leave what you're doing.
+
+Three levels (Plain → Technical → Examples), arrow keys to switch, related terms you can click to keep going. Anthropic, OpenAI, or Google — bring your own key. That's the whole thing.
 
 <!-- Replace with your actual demo GIF -->
 ![demo](https://github.com/user-attachments/assets/PLACEHOLDER-REPLACE-WITH-ACTUAL-GIF)

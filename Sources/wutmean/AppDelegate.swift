@@ -113,6 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPanel.onStopRecording = { [weak self] in
             self?.hotkeyListener.resume()
         }
+        settingsPanel.onFontPreviewChanged = { [weak self] in
+            guard let self else { return }
+            for panel in self.popupStack where panel.isVisible {
+                panel.refreshFonts()
+            }
+        }
     }
 
     private func registerLoginItem() {
