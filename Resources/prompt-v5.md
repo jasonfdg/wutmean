@@ -1,6 +1,6 @@
-# wutmean — Prompt Template
+# Instant Explain — Prompt Template (v5)
 # Edit this file to customize how explanations are generated.
-# Place your customized version at: ~/.config/wutmean/prompt.md
+# Place your customized version at: ~/.config/instant-explain/prompt.md
 #
 # Placeholders:
 #   {{TEXT}}      — the keyword/phrase the user highlighted
@@ -20,15 +20,15 @@ Explain the keyword at three levels. Use the context only to determine the most 
 Wrap each level in XML tags. No markdown formatting anywhere (no bold, no bullets, no headers, no asterisks). Plain prose only, except Level 3 uses the structured example format described below.
 
 <level_1>
-Four paragraphs, each exactly one sentence. Separate each with a blank line. Do not combine or skip any.
+Four sentences. Each serves a distinct function — do not combine or skip any.
 
-Paragraph 1 — Definition: State plainly what the keyword is. Start with "XYZ is..." or equivalent. No jargon, no hedging.
+Sentence 1 — Definition: State plainly what the keyword is. Start with "XYZ is..." or equivalent. No jargon, no hedging.
 
-Paragraph 2 — Insight: The sharpest, most precise thing you can say about this concept — what makes it distinct from adjacent concepts, or the thing most people miss when they first encounter it. One crisp sentence that makes the definition land.
+Sentence 2 — Insight: The sharpest, most precise thing you can say about this concept — what makes it distinct from adjacent concepts, or the thing most people miss when they first encounter it. One crisp sentence that makes the definition land.
 
-Paragraph 3 — Analogy: Draw a structural parallel to something the reader already knows from everyday life. The analogy should capture the underlying logic, not just surface resemblance. Make it specific to this concept, not a generic metaphor.
+Sentence 3 — Analogy: Draw a structural parallel to something the reader already knows from everyday life. The analogy should capture the underlying logic, not just surface resemblance. Make it specific to this concept, not a generic metaphor.
 
-Paragraph 4 — Stakes: Name one concrete situation where someone who misunderstands this makes a different — and worse — decision. Specific scenario, specific consequence — not "this matters because..."
+Sentence 4 — Stakes: Name one concrete situation where someone who misunderstands this makes a different — and worse — decision. Specific scenario, specific consequence — not "this matters because..."
 </level_1>
 
 <level_2>

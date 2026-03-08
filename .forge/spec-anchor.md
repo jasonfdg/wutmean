@@ -1,38 +1,33 @@
-# v2 Spec Anchor
+# Multi-Provider LLM Support
 
 ## Goal
-Evolve InstantExplain from a working prototype to a polished, terminal-aesthetic tool with reliable keyboard input, pedagogically-refined 5-level explanations loaded from an editable prompt file, a settings menu, and terminal-style follow-up UX.
+Add Gemini and GPT model support alongside existing Anthropic, with auto-detection of providers from API keys and dynamic model fetching.
 
 ## Functional Requirements
 
-- **R1**: Keyboard input must work reliably — arrow keys, Esc, Enter, F5 must always respond when the popup is visible
-- **R2**: Nav hints at the bottom must be clickable text (not buttons) that highlight on hover
-- **R3**: All text (body, level label, nav hints, follow-up) must use monospaced font for terminal aesthetic
-- **R4**: The 5-level explanation prompt must be loaded from an external markdown file (`~/.config/instant-explain/prompt.md`) that users can edit directly
-- **R5**: Menu bar icon must include a Settings option that opens a settings window with: API key, hotkey, default level, model selection
-- **R6**: Follow-up input must mimic terminal UX: `> ` prefix, monospaced, no visible border, green caret
-- **R7**: Prompt must be pedagogically refined based on WIRED 5-levels + SOLO taxonomy research
+- **R1: Multi-key input** — Settings UI replaces single API key field with a multi-line text area. User pastes keys one per line.
+- **R2: Auto-detect provider** — App detects provider from key prefix: `sk-ant-` → Anthropic, `sk-` (not `sk-ant-`) → OpenAI, `AIza` → Google/Gemini. Shows detected provider badges below the text area.
+- **R3: Dynamic model fetching** — On save, app fetches available models from each detected provider's list endpoint. Models cached to `~/.config/wutmean/models-cache.json`.
+- **R4: Grouped model dropdown** — Model popup shows models grouped by provider with separator items. Only providers with valid keys appear.
+- **R5: Multi-provider Explainer** — Explainer routes API calls to the correct provider endpoint based on selected model. Supports Anthropic, OpenAI, and Google streaming formats.
+- **R6: Config migration** — Existing `api_key` string migrates to `api_keys` array on load. Backwards compatible.
 
 ## Non-Functional Requirements
-
+- Streaming must work for all three providers (no blocking waits)
+- Model fetch failures degrade gracefully (use cache or show error)
+- Prompt template (XML tags) sent identically to all providers
 - No new dependencies (pure Swift + AppKit)
-- Keep 6-file structure (add new files only if needed for Settings)
-- Maintain streaming-first UX from v1
-- Config file backwards-compatible (new fields optional, old configs still work)
 
 ## Acceptance Criteria
-
-- R1: With popup visible, arrow/Esc/Enter/F5 respond 100% of the time
-- R2: Hovering nav hint text shows brightness change; clicking triggers action
-- R3: All visible text in popup uses `.monospacedSystemFont`
-- R4: Editing `~/.config/instant-explain/prompt.md` changes explanation output on next F5
-- R5: Settings accessible from menu bar with functional hotkey/level/model/API fields
-- R6: Follow-up field shows `> ` prefix and monospaced text
-- R7: Each of the 5 levels produces a distinctly different *type* of explanation (not just vocabulary changes)
+- AC1: Pasting an Anthropic + OpenAI key shows both provider badges and populates models from both
+- AC2: Selecting a GPT model sends request to OpenAI endpoint with correct auth
+- AC3: Selecting a Gemini model sends request to Google endpoint with correct auth
+- AC4: Existing single-key configs auto-migrate without user action
+- AC5: If a provider's model fetch fails, other providers still work
+- AC6: Cached models load on startup when offline
 
 ## Out of Scope
-
-- Light mode / theme switching
-- Custom window chrome / resizing
-- Multiple API provider support
-- Markdown rendering in body text (plain text only)
+- OpenRouter / proxy support
+- Custom endpoint URLs
+- Per-model prompt customization
+- Token counting / cost tracking

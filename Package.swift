@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "InstantExplain",
+    name: "wutmean",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "InstantExplain",
-            path: "Sources/InstantExplain",
+            name: "wutmean",
+            path: "Sources/wutmean",
             resources: [
                 .copy("../../Resources/default-prompt.md")
             ]

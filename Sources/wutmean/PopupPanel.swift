@@ -1,8 +1,8 @@
 import Cocoa
 
-final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
-    private let levelNames = ["The Gist", "Essentials", "Mechanism", "Nuance", "Frontier"]
-    private var currentLevel = 2
+final class PopupPanel: NSPanel, NSMenuDelegate {
+    private let levelNames = ["Plain", "Technical", "Examples"]
+    private var currentLevel = 0
     private var levels: [String] = []
     private var relatedTerms: [String] = []
     private var searchPhrases: [String] = []
@@ -20,18 +20,25 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     private let keywordLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
     private let settingsButton = NSButton()
-    private let loadingIndicator = NSProgressIndicator()
     private let scrollView = NSScrollView()
+
+    // Blinking cursor for loading and streaming states
+    private var cursorTimer: Timer?
+    private var cursorVisible = true
+    private var isStreamingActive = false
+
+    // Bloomberg-style header band
+    private let headerBand = NSView()
 
     // Separator line between body and bottom section
     private let separatorLine = NSView()
 
     // Nav row (includes copy icon and overflow menu trigger)
     private let navContainer = NSView()
-    private var navLabels: [NSTextField] = []
+    private var navButtons: [NSButton] = []
     private var navTrackingAreas: [NSTrackingArea] = []
-    private let copyLabel = NSTextField(labelWithString: "⎘")
-    private let overflowLabel = NSTextField(labelWithString: "⋯")
+    private let copyButton = NSButton()
+    private let overflowButton = NSButton()
     private let overflowMenu = NSMenu()
 
     // Related concepts row
@@ -40,18 +47,12 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     private var relatedLabels: [NSTextField] = []
     private var relatedTrackingAreas: [NSTrackingArea] = []
 
-    // Terminal-style follow-up
-    private let followUpContainer = NSView()
-    private let followUpPrompt = NSTextField(labelWithString: "> ")
-    private let followUpField = NSTextField()
-
     // Keyboard monitor
     private var keyMonitor: Any?
 
     /// The keyCode of the configured hotkey — let it pass through to spawn new popups
     var hotkeyKeyCode: UInt16 = 96  // default F5, updated by AppDelegate
 
-    var onFollowUp: ((String, String) -> Void)?
     var onExplainTerm: ((String) -> Void)?
     var onOpenSettings: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -88,7 +89,7 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
 
         // Accessibility (H6)
         setAccessibilityRole(.popover)
-        setAccessibilityLabel("Instant Explain")
+        setAccessibilityLabel("wutmean")
 
         setupUI()
     }
@@ -102,54 +103,58 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         container.layer?.borderWidth = 1
         self.contentView = container
 
-        // Close button
+        // Bloomberg-style header band
+        headerBand.wantsLayer = true
+        headerBand.layer?.backgroundColor = Theme.headerBackground.cgColor
+        container.addSubview(headerBand)
+
+        // Close button — sits on the header band
         closeButton.bezelStyle = .inline
-        closeButton.title = "✕"
-        closeButton.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
+        closeButton.title = ""
+        closeButton.imagePosition = .imageOnly
+        closeButton.font = Theme.monoFont(size: 12, weight: .bold)
         closeButton.isBordered = false
-        closeButton.contentTintColor = Theme.controlDim
+        closeButton.contentTintColor = Theme.headerText
         closeButton.setAccessibilityLabel("Close")
         closeButton.setAccessibilityRole(.button)
         closeButton.target = self
         closeButton.action = #selector(dismissPanel)
         container.addSubview(closeButton)
 
-        // Settings gear button
+        // Settings gear button — sits on the header band
         settingsButton.bezelStyle = .inline
-        settingsButton.title = "⚙"
-        settingsButton.font = .monospacedSystemFont(ofSize: 14, weight: .medium)
+        settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
+        settingsButton.title = ""
+        settingsButton.imagePosition = .imageOnly
+        settingsButton.font = Theme.monoFont(size: 12, weight: .bold)
         settingsButton.isBordered = false
-        settingsButton.contentTintColor = Theme.controlDim
+        settingsButton.contentTintColor = Theme.headerText
         settingsButton.setAccessibilityLabel("Settings")
         settingsButton.setAccessibilityRole(.button)
         settingsButton.target = self
         settingsButton.action = #selector(openSettingsAction)
         container.addSubview(settingsButton)
 
-        // Level label (secondary: 11pt)
-        levelLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-        levelLabel.textColor = Theme.accent
+        // Level label — on the header band, dark text on orange
+        levelLabel.font = Theme.displayFont(size: 12, weight: .bold)
+        levelLabel.textColor = Theme.headerText
         container.addSubview(levelLabel)
 
-        // Keyword label (primary: 13pt)
-        keywordLabel.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        keywordLabel.textColor = Theme.accentDim
+        // Keyword label — below the header band
+        keywordLabel.font = Theme.monoFont(size: 13, weight: .medium)
+        keywordLabel.textColor = Theme.accent
+        keywordLabel.lineBreakMode = .byClipping
         keywordLabel.isHidden = true
         container.addSubview(keywordLabel)
 
-        // Loading indicator
-        loadingIndicator.style = .spinning
-        loadingIndicator.controlSize = .small
-        loadingIndicator.isHidden = true
-        container.addSubview(loadingIndicator)
-
         // Body text
         bodyText.isEditable = false
-        bodyText.isSelectable = true
+        bodyText.isSelectable = false
         bodyText.drawsBackground = false
         bodyText.isBordered = false
         bodyText.textColor = Theme.textPrimary
-        bodyText.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        bodyText.font = Theme.bodyFont(size: 12)
         bodyText.lineBreakMode = .byWordWrapping
         bodyText.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -159,6 +164,7 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         scrollView.borderType = .noBorder
         scrollView.autohidesScrollers = true
         scrollView.documentView = bodyText
+        scrollView.setAccessibilityLabel("Explanation content")
         container.addSubview(scrollView)
 
         // Separator line
@@ -168,8 +174,9 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
 
         // Related concepts container
         relatedContainer.wantsLayer = true
+        relatedContainer.layer?.masksToBounds = true
         relatedContainer.isHidden = true
-        relatedPrefix.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        relatedPrefix.font = Theme.bodyFont(size: 11, weight: .medium)
         relatedPrefix.textColor = Theme.textTertiary
         relatedContainer.addSubview(relatedPrefix)
         container.addSubview(relatedContainer)
@@ -179,116 +186,86 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         container.addSubview(navContainer)
         setupNavHints()
 
-        // Follow-up container
-        followUpContainer.isHidden = true
-        container.addSubview(followUpContainer)
-
-        followUpPrompt.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        followUpPrompt.textColor = Theme.success
-        followUpContainer.addSubview(followUpPrompt)
-
-        followUpField.placeholderString = "ask a follow-up..."
-        followUpField.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        followUpField.textColor = .white
-        followUpField.backgroundColor = .clear
-        followUpField.drawsBackground = false
-        followUpField.isBordered = false
-        followUpField.focusRingType = .none
-        followUpField.target = self
-        followUpField.action = #selector(submitFollowUp)
-        followUpContainer.addSubview(followUpField)
-
         // Overflow menu for search actions
         setupOverflowMenu()
+    }
+
+    func refreshTheme() {
+        guard let container = contentView else { return }
+        container.layer?.backgroundColor = Theme.panelBackground.cgColor
+        container.layer?.borderColor = Theme.panelBorder.cgColor
+        headerBand.layer?.backgroundColor = Theme.headerBackground.cgColor
+        separatorLine.layer?.backgroundColor = Theme.separator.cgColor
+        closeButton.contentTintColor = Theme.headerText
+        settingsButton.contentTintColor = Theme.headerText
+        levelLabel.textColor = Theme.headerText
+        keywordLabel.textColor = Theme.accent
+        bodyText.textColor = Theme.textPrimary
+        for btn in navButtons { btn.contentTintColor = Theme.textSecondary }
+        copyButton.contentTintColor = Theme.textSecondary
+        overflowButton.contentTintColor = Theme.textSecondary
+        relatedPrefix.textColor = Theme.textTertiary
+        for label in relatedLabels {
+            label.textColor = label.stringValue == "·" ? Theme.relatedDot : Theme.relatedText
+        }
+        if !levels.isEmpty { updateDisplay() }
     }
 
     private func setupNavHints() {
         let items: [(String, Selector)] = [
             ("← simpler", #selector(navSimpler)),
-            ("harder →", #selector(navHarder)),
-            ("esc close", #selector(dismissPanel)),
-            ("⏎ follow-up", #selector(navFollowUp))
+            ("[esc] exit", #selector(dismissPanel)),
+            ("harder →", #selector(navHarder))
         ]
 
         for (title, action) in items {
-            let label = NSTextField(labelWithString: title)
-            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            label.textColor = Theme.textSecondary
-            label.isSelectable = false
-            label.wantsLayer = true
-            label.setAccessibilityRole(.button)
-            label.setAccessibilityLabel(title)
-            navContainer.addSubview(label)
-            navLabels.append(label)
-
-            let click = NSClickGestureRecognizer(target: self, action: action)
-            label.addGestureRecognizer(click)
+            let btn = NSButton(title: title, target: self, action: action)
+            btn.font = Theme.monoFont(size: 10.5)
+            btn.isBordered = false
+            btn.contentTintColor = Theme.textSecondary
+            btn.wantsLayer = true
+            btn.setAccessibilityLabel(title)
+            navContainer.addSubview(btn)
+            navButtons.append(btn)
         }
 
-        // Copy icon — right-aligned on nav row, 15pt with 28x28 hit area
-        copyLabel.font = .monospacedSystemFont(ofSize: 15, weight: .medium)
-        copyLabel.textColor = Theme.textSecondary
-        copyLabel.isSelectable = false
-        copyLabel.wantsLayer = true
-        copyLabel.alignment = .center
-        copyLabel.setAccessibilityRole(.button)
-        copyLabel.setAccessibilityLabel("Copy explanation")
-        navContainer.addSubview(copyLabel)
-        let copyClick = NSClickGestureRecognizer(target: self, action: #selector(actionCopy))
-        copyLabel.addGestureRecognizer(copyClick)
+        // Copy button
+        copyButton.title = "⎘"
+        copyButton.font = Theme.monoFont(size: 14)
+        copyButton.isBordered = false
+        copyButton.contentTintColor = Theme.textSecondary
+        copyButton.wantsLayer = true
+        copyButton.alignment = .center
+        copyButton.setAccessibilityLabel("Copy explanation")
+        copyButton.target = self
+        copyButton.action = #selector(actionCopy)
+        navContainer.addSubview(copyButton)
 
-        // Overflow icon — right-aligned next to copy, 15pt with 28x28 hit area
-        overflowLabel.font = .monospacedSystemFont(ofSize: 15, weight: .medium)
-        overflowLabel.textColor = Theme.textSecondary
-        overflowLabel.isSelectable = false
-        overflowLabel.wantsLayer = true
-        overflowLabel.alignment = .center
-        overflowLabel.setAccessibilityRole(.button)
-        overflowLabel.setAccessibilityLabel("More actions")
-        navContainer.addSubview(overflowLabel)
-        let overflowClick = NSClickGestureRecognizer(target: self, action: #selector(showOverflowMenu(_:)))
-        overflowLabel.addGestureRecognizer(overflowClick)
+        // Overflow button
+        overflowButton.title = "⋯"
+        overflowButton.font = Theme.monoFont(size: 14)
+        overflowButton.isBordered = false
+        overflowButton.contentTintColor = Theme.textSecondary
+        overflowButton.wantsLayer = true
+        overflowButton.alignment = .center
+        overflowButton.setAccessibilityLabel("More actions")
+        overflowButton.target = self
+        overflowButton.action = #selector(showOverflowMenu(_:))
+        navContainer.addSubview(overflowButton)
     }
 
     private func setupOverflowMenu() {
         overflowMenu.addItem(withTitle: "Google", action: #selector(actionGoogle), keyEquivalent: "")
-        overflowMenu.addItem(withTitle: "Wikipedia", action: #selector(actionWikipedia), keyEquivalent: "")
         overflowMenu.addItem(withTitle: "YouTube", action: #selector(actionYouTube), keyEquivalent: "")
         for item in overflowMenu.items { item.target = self }
     }
 
-    @objc private func showOverflowMenu(_ gesture: NSClickGestureRecognizer) {
-        overflowMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: overflowLabel.bounds.height + 4), in: overflowLabel)
+    @objc private func showOverflowMenu(_ sender: Any?) {
+        overflowMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: overflowButton.bounds.height + 4), in: overflowButton)
     }
 
     private func installTrackingAreas() {
-        // Nav tracking areas
-        for area in navTrackingAreas { navContainer.removeTrackingArea(area) }
-        navTrackingAreas.removeAll()
-        for label in navLabels {
-            let area = NSTrackingArea(
-                rect: label.frame,
-                options: [.mouseEnteredAndExited, .activeAlways],
-                owner: self,
-                userInfo: ["label": label]
-            )
-            navContainer.addTrackingArea(area)
-            navTrackingAreas.append(area)
-        }
-
-        // Copy + overflow tracking
-        for view in [copyLabel, overflowLabel] {
-            let area = NSTrackingArea(
-                rect: view.frame,
-                options: [.mouseEnteredAndExited, .activeAlways],
-                owner: self,
-                userInfo: ["label": view]
-            )
-            navContainer.addTrackingArea(area)
-            navTrackingAreas.append(area)
-        }
-
-        // Related tracking areas
+        // Related tracking areas (nav buttons handle hover natively)
         for area in relatedTrackingAreas { relatedContainer.removeTrackingArea(area) }
         relatedTrackingAreas.removeAll()
         for label in relatedLabels {
@@ -305,14 +282,35 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
 
     override func mouseEntered(with event: NSEvent) {
         if let label = event.trackingArea?.userInfo?["label"] as? NSTextField {
-            label.textColor = relatedLabels.contains(label) ? Theme.relatedHover : Theme.textHover
+            label.textColor = Theme.relatedHover
+            NSCursor.pointingHand.push()
         }
     }
 
     override func mouseExited(with event: NSEvent) {
         if let label = event.trackingArea?.userInfo?["label"] as? NSTextField {
-            label.textColor = relatedLabels.contains(label) ? Theme.relatedText : Theme.textSecondary
+            label.textColor = Theme.relatedText
+            NSCursor.pop()
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let relPoint = relatedContainer.convert(event.locationInWindow, from: nil)
+        for label in relatedLabels where label.stringValue != "·" {
+            if label.frame.contains(relPoint) {
+                label.alphaValue = 0.5
+                super.mouseDown(with: event)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        for label in relatedLabels where label.stringValue != "·" {
+            label.alphaValue = 1.0
+        }
+        super.mouseUp(with: event)
     }
 
     @objc private func navSimpler() {
@@ -320,11 +318,7 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     }
 
     @objc private func navHarder() {
-        if currentLevel < 4 { currentLevel += 1; updateDisplay() }
-    }
-
-    @objc private func navFollowUp() {
-        if followUpContainer.isHidden { toggleFollowUp() }
+        if currentLevel < 2 { currentLevel += 1; updateDisplay() }
     }
 
     @objc private func openSettingsAction() {
@@ -340,13 +334,13 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         NSPasteboard.general.setString(text, forType: .string)
 
         // Visual + text feedback (M1: not color-only)
-        let originalText = copyLabel.stringValue
-        let originalColor = copyLabel.textColor
-        copyLabel.stringValue = "✓"
-        copyLabel.textColor = Theme.success
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.copyLabel.stringValue = originalText
-            self?.copyLabel.textColor = originalColor
+        let originalTitle = copyButton.title
+        let originalColor = copyButton.contentTintColor
+        copyButton.title = "✓"
+        copyButton.contentTintColor = Theme.success
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.copyButton.title = originalTitle
+            self?.copyButton.contentTintColor = originalColor
         }
     }
 
@@ -354,21 +348,15 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         openSearch("https://www.google.com/search?q=", query: smartSearchQuery())
     }
 
-    @objc private func actionWikipedia() {
-        openSearch("https://en.wikipedia.org/wiki/Special:Search?search=", query: originalText)
-    }
-
     @objc private func actionYouTube() {
         openSearch("https://www.youtube.com/results?search_query=", query: smartSearchQuery())
     }
 
-    /// Build a contextual search query: use first search phrase if available, else "keyword" + original text
+    /// Build a contextual search query: use first search phrase if available, else original text
     private func smartSearchQuery() -> String {
-        // If we have search phrases from the LLM, use the first one as a general search
         if let first = searchPhrases.first, !first.isEmpty {
             return "\"\(originalText)\" \(first)"
         }
-        // Fallback: just the original text
         return originalText
     }
 
@@ -394,35 +382,40 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         let w = container.frame.width
         let h = container.frame.height
 
-        closeButton.frame = NSRect(x: w - 34, y: h - 34, width: 24, height: 24)
-        settingsButton.frame = NSRect(x: w - 58, y: h - 34, width: 24, height: 24)
-        levelLabel.frame = NSRect(x: 16, y: h - 36, width: 300, height: 20)
-        loadingIndicator.frame = NSRect(x: 220, y: h - 36, width: 16, height: 16)
-        keywordLabel.frame = NSRect(x: 16, y: h - 54, width: w - 32, height: 16)
+        // Header band — full-width orange strip at top
+        let headerH: CGFloat = 28
+        headerBand.frame = NSRect(x: 0, y: h - headerH, width: w, height: headerH)
 
-        // Bottom section: 2 rows, 10px bottom padding, 8px between rows
-        let navY: CGFloat = 10
-        let relatedY: CGFloat = navY + 18 + 8
-        let separatorY: CGFloat = relatedY + 18 + 8
-        let scrollBottom: CGFloat = separatorY + 1 + 4
+        // Controls on header band — 44pt hit targets extending below band
+        let btnSize: CGFloat = 44
+        let btnY = h - headerH + (headerH - btnSize) / 2
+        closeButton.frame = NSRect(x: w - btnSize - 2, y: btnY, width: btnSize, height: btnSize)
+        settingsButton.frame = NSRect(x: w - btnSize * 2 - 2, y: btnY, width: btnSize, height: btnSize)
+        levelLabel.frame = NSRect(x: 10, y: h - headerH + 4, width: 300, height: 20)
 
-        let scrollTop = h - 60
-        scrollView.frame = NSRect(x: 16, y: scrollBottom, width: w - 32, height: scrollTop - scrollBottom)
+        // Keyword label below header — increased gap (12px instead of 6px)
+        let keywordGap: CGFloat = 12
+        keywordLabel.frame = NSRect(x: 10, y: h - headerH - keywordGap - 18, width: w - 20, height: 18)
+
+        // Bottom section: 2 rows, 8px bottom padding, 6px between rows
+        let navY: CGFloat = 8
+        let relatedY: CGFloat = navY + 18 + 6
+        let separatorY: CGFloat = relatedY + 18 + 6
+        let scrollBottom: CGFloat = separatorY + 1 + 8  // increased gap above separator
+
+        // More breathing room between keyword and body (16px gap after keyword)
+        let scrollTop = h - headerH - (keywordLabel.isHidden ? 10 : keywordGap + 18 + 12)
+        scrollView.frame = NSRect(x: 10, y: scrollBottom, width: w - 20, height: scrollTop - scrollBottom)
 
         // Separator line
-        separatorLine.frame = NSRect(x: 16, y: separatorY, width: w - 32, height: 1)
+        separatorLine.frame = NSRect(x: 10, y: separatorY, width: w - 20, height: 1)
 
         // Related concepts row
-        relatedContainer.frame = NSRect(x: 16, y: relatedY, width: w - 32, height: 18)
+        relatedContainer.frame = NSRect(x: 10, y: relatedY, width: w - 20, height: 18)
 
         // Nav hints row
-        navContainer.frame = NSRect(x: 16, y: navY, width: w - 32, height: 18)
+        navContainer.frame = NSRect(x: 10, y: navY, width: w - 20, height: 18)
         layoutNavLabels()
-
-        // Follow-up container (replaces nav when active)
-        followUpContainer.frame = NSRect(x: 16, y: navY, width: w - 32, height: 22)
-        followUpPrompt.frame = NSRect(x: 0, y: 1, width: 20, height: 20)
-        followUpField.frame = NSRect(x: 20, y: 0, width: w - 32 - 20, height: 22)
 
         resizeBodyText()
     }
@@ -430,25 +423,25 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     private func layoutNavLabels() {
         let spacing: CGFloat = 20
         var totalWidth: CGFloat = 0
-        for label in navLabels {
-            label.sizeToFit()
-            totalWidth += label.frame.width
+        for btn in navButtons {
+            btn.sizeToFit()
+            totalWidth += btn.frame.width
         }
-        totalWidth += spacing * CGFloat(navLabels.count - 1)
+        totalWidth += spacing * CGFloat(navButtons.count - 1)
 
         // Center the nav hints
         var x = (navContainer.frame.width - totalWidth) / 2
-        for label in navLabels {
-            label.frame = NSRect(x: x, y: 0, width: label.frame.width, height: 18)
-            x += label.frame.width + spacing
+        for btn in navButtons {
+            btn.frame = NSRect(x: x, y: 0, width: btn.frame.width, height: 18)
+            x += btn.frame.width + spacing
         }
 
-        // Right-align copy + overflow icons with 28x28 hit area
-        let iconSize: CGFloat = 28
+        // Right-align copy + overflow icons with 44x44 hit area (M2)
+        let iconSize: CGFloat = 44
         let rightEdge = navContainer.frame.width
         let iconY = (18 - iconSize) / 2  // vertically center in nav row
-        overflowLabel.frame = NSRect(x: rightEdge - iconSize - 12, y: iconY, width: iconSize, height: iconSize)
-        copyLabel.frame = NSRect(x: overflowLabel.frame.minX - iconSize - 8, y: iconY, width: iconSize, height: iconSize)
+        overflowButton.frame = NSRect(x: rightEdge - iconSize, y: iconY, width: iconSize, height: iconSize)
+        copyButton.frame = NSRect(x: overflowButton.frame.minX - iconSize, y: iconY, width: iconSize, height: iconSize)
 
         installTrackingAreas()
     }
@@ -469,17 +462,16 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         let terms = Array(relatedTerms.prefix(3))
         for (i, term) in terms.enumerated() {
             if i > 0 {
-                // Add middle dot separator
                 let dot = NSTextField(labelWithString: "·")
-                dot.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+                dot.font = Theme.bodyFont(size: 11, weight: .medium)
                 dot.textColor = Theme.relatedDot
                 dot.isSelectable = false
                 relatedContainer.addSubview(dot)
-                relatedLabels.append(dot)  // track for layout but no click
+                relatedLabels.append(dot)
             }
 
             let label = NSTextField(labelWithString: term)
-            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.font = Theme.bodyFont(size: 11, weight: .medium)
             label.textColor = Theme.relatedText
             label.isSelectable = false
             label.wantsLayer = true
@@ -490,23 +482,49 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
             label.addGestureRecognizer(click)
         }
 
-        // Layout: "explore →" prefix + dot-separated terms, centered
+        // Layout: "explore →" prefix + dot-separated terms
         relatedPrefix.sizeToFit()
         let prefixWidth = relatedPrefix.frame.width + 6
-
+        let containerW = relatedContainer.frame.width
         let dotSpacing: CGFloat = 4
+
+        // Measure natural widths
         var totalWidth = prefixWidth
         for label in relatedLabels {
             label.sizeToFit()
             totalWidth += label.frame.width + dotSpacing
         }
-        totalWidth -= dotSpacing  // no trailing space
+        totalWidth -= dotSpacing
 
-        var x = max(0, (relatedContainer.frame.width - totalWidth) / 2)
+        // If overflow, cap each term label to an equal share of available space
+        let termLabels = relatedLabels.filter { $0.stringValue != "·" }
+        let dotLabels = relatedLabels.filter { $0.stringValue == "·" }
+        let dotsWidth = dotLabels.reduce(CGFloat(0)) { $0 + $1.frame.width }
+        let termCount = CGFloat(max(1, termLabels.count))
+        let spacingOverhead = dotSpacing * CGFloat(relatedLabels.count)
+        let maxTermWidth = (containerW - prefixWidth - dotsWidth - spacingOverhead) / termCount
+
+        if totalWidth > containerW {
+            for label in termLabels {
+                label.frame.size.width = min(label.frame.width, max(30, maxTermWidth))
+            }
+            // Recalculate total after capping
+            totalWidth = prefixWidth
+            for label in relatedLabels {
+                totalWidth += label.frame.width + dotSpacing
+            }
+            totalWidth -= dotSpacing
+        }
+
+        // Center if fits, left-align if overflows
+        var x: CGFloat = totalWidth <= containerW
+            ? (containerW - totalWidth) / 2
+            : 0
         relatedPrefix.frame = NSRect(x: x, y: 0, width: relatedPrefix.frame.width, height: 16)
         x += prefixWidth
 
         for label in relatedLabels {
+            label.lineBreakMode = .byTruncatingTail
             label.frame = NSRect(x: x, y: 0, width: label.frame.width, height: 16)
             x += label.frame.width + dotSpacing
         }
@@ -544,37 +562,34 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
 
     // MARK: - Public API
 
-    func showLoading(text: String, offsetFrom: NSPoint? = nil, defaultLevel: Int = 2) {
+    func showLoading(text: String, offsetFrom: NSPoint? = nil, defaultLevel: Int = 0) {
         self.originalText = text
         self.levels = []
         self.relatedTerms = []
         self.currentLevel = defaultLevel
-        self.followUpContainer.isHidden = true
-        self.followUpField.stringValue = ""
         self.pendingTokens = ""
         self.flushTimer?.cancel()
         self.flushTimer = nil
         navContainer.isHidden = false
         relatedContainer.isHidden = true
-        loadingIndicator.isHidden = false
-        loadingIndicator.startAnimation(nil)
+        isStreamingActive = true
+        bodyText.isSelectable = false
         let name = levelNames[defaultLevel]
-        levelLabel.stringValue = "[ \(name) ] \(defaultLevel + 1)/5"
+        levelLabel.stringValue = "[ \(name) ] \(defaultLevel + 1)/3"
 
-        // Show keyword being explained
-        if !text.isEmpty {
-            let display = text.count > 60 ? String(text.prefix(57)) + "..." : text
-            keywordLabel.stringValue = "> explaining: \"\(display)\""
-            keywordLabel.isHidden = false
-        } else {
-            keywordLabel.isHidden = true
-        }
-
+        keywordLabel.isHidden = text.isEmpty
         bodyText.stringValue = ""
+        startCursorBlink()
         applyDynamicSize()
-        hideNavLabels()
-        copyLabel.isHidden = true
-        overflowLabel.isHidden = true
+
+        // Truncate keyword after layout so label frame width is known
+        if !text.isEmpty {
+            let display = truncateKeywordToFit(text)
+            keywordLabel.stringValue = "> \(display)"
+        }
+        showEscOnly()
+        copyButton.isHidden = true
+        overflowButton.isHidden = true
         if let offset = offsetFrom {
             setFrameOrigin(NSPoint(x: offset.x + 20, y: offset.y - 20))
         } else {
@@ -597,15 +612,15 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     func updateKeyword(_ text: String) {
         self.originalText = text
         if !text.isEmpty {
-            let display = text.count > 60 ? String(text.prefix(57)) + "..." : text
-            keywordLabel.stringValue = "> explaining: \"\(display)\""
+            let display = truncateKeywordToFit(text)
+            keywordLabel.stringValue = "> \(display)"
             keywordLabel.isHidden = false
         }
     }
 
     func showMaxDepthFlash() {
         let original = levelLabel.stringValue
-        levelLabel.stringValue = "[ max popups open ]"
+        levelLabel.stringValue = "[ MAX DEPTH ]"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.levelLabel.stringValue = original
         }
@@ -631,8 +646,14 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         flushTimer?.cancel()
         flushTimer = nil
         guard !pendingTokens.isEmpty else { return }
-        bodyText.stringValue += pendingTokens
+        // Strip cursor before appending new tokens
+        var text = bodyText.stringValue
+        if text.hasSuffix("▌") { text = String(text.dropLast()) }
+        text += pendingTokens
         pendingTokens = ""
+        // Re-add cursor if blinking
+        if isStreamingActive && cursorVisible { text += "▌" }
+        bodyText.stringValue = text
         resizeBodyText()
         scrollToBottom()
     }
@@ -643,67 +664,80 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
         documentView.scroll(NSPoint(x: 0, y: maxY))
     }
 
+    // MARK: - Blinking cursor
+
+    private func startCursorBlink() {
+        stopCursorBlink()
+        cursorVisible = true
+        updateCursorDisplay()
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.cursorVisible.toggle()
+            self.updateCursorDisplay()
+        }
+    }
+
+    private func stopCursorBlink() {
+        cursorTimer?.invalidate()
+        cursorTimer = nil
+        cursorVisible = false
+        // Strip trailing cursor
+        let text = bodyText.stringValue
+        if text.hasSuffix("▌") {
+            bodyText.stringValue = String(text.dropLast())
+        }
+    }
+
+    private func updateCursorDisplay() {
+        var text = bodyText.stringValue
+        if text.hasSuffix("▌") { text = String(text.dropLast()) }
+        if cursorVisible { text += "▌" }
+        bodyText.stringValue = text
+    }
+
     func showResult(_ result: Explainer.ExplanationResult) {
+        stopCursorBlink()
+        isStreamingActive = false
+        bodyText.isSelectable = true
         flushPendingTokens()
         self.levels = result.levels
         self.relatedTerms = result.relatedTerms
         self.searchPhrases = result.searchPhrases
-        loadingIndicator.stopAnimation(nil)
-        loadingIndicator.isHidden = true
-        copyLabel.isHidden = false
-        overflowLabel.isHidden = false
+        copyButton.isHidden = false
+        overflowButton.isHidden = false
         layoutRelatedLabels()
         updateDisplay()
     }
 
     func showError(_ message: String) {
+        stopCursorBlink()
+        isStreamingActive = false
+        bodyText.isSelectable = true
         flushTimer?.cancel()
         flushTimer = nil
         pendingTokens = ""
-        loadingIndicator.stopAnimation(nil)
-        loadingIndicator.isHidden = true
-        levelLabel.stringValue = "[ Error ]"
+        levelLabel.stringValue = "[ ERROR ]"
         bodyText.stringValue = message
         resizeBodyText()
         relatedContainer.isHidden = true
-        copyLabel.isHidden = true
-        overflowLabel.isHidden = true
-        showNavLabels()
-        for (i, label) in navLabels.enumerated() {
-            label.isHidden = (i != 2)  // only "esc close"
-        }
+        copyButton.isHidden = true
+        overflowButton.isHidden = true
+        showEscOnly()
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
 
     @objc func dismissPanel() {
+        stopCursorBlink()
+        isStreamingActive = false
         explainTask?.cancel()
         explainTask = nil
         flushTimer?.cancel()
         flushTimer = nil
         pendingTokens = ""
         orderOut(nil)
-        followUpContainer.isHidden = true
         navContainer.isHidden = false
-        followUpField.stringValue = ""
         removeKeyMonitor()
         onDismiss?()
-    }
-
-    func toggleFollowUp() {
-        followUpContainer.isHidden.toggle()
-        navContainer.isHidden = !followUpContainer.isHidden
-        if !followUpContainer.isHidden {
-            makeFirstResponder(followUpField)
-        }
-    }
-
-    @objc private func submitFollowUp() {
-        let question = followUpField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
-        followUpField.stringValue = ""
-        followUpContainer.isHidden = true
-        navContainer.isHidden = false
-        onFollowUp?(originalText, question)
     }
 
     // MARK: - Keyboard handling
@@ -726,13 +760,6 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         switch event.keyCode {
         case 53:  // Esc
-            if !followUpContainer.isHidden {
-                // Close follow-up field, return to nav
-                followUpField.stringValue = ""
-                followUpContainer.isHidden = true
-                navContainer.isHidden = false
-                return true
-            }
             dismissPanel()
             return true
         case 123:  // Left arrow
@@ -742,18 +769,9 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
             }
             return true
         case 124:  // Right arrow
-            if currentLevel < 4 && !levels.isEmpty {
+            if currentLevel < 2 && !levels.isEmpty {
                 currentLevel += 1
                 updateDisplay()
-            }
-            return true
-        case 36:  // Enter/Return
-            // If follow-up field is active (first responder), let NSTextField handle it
-            if let responder = firstResponder, responder === followUpField || (responder as? NSText)?.delegate === followUpField {
-                return false
-            }
-            if followUpContainer.isHidden && !levels.isEmpty {
-                toggleFollowUp()
             }
             return true
         case hotkeyKeyCode:  // configured hotkey — let it pass through to spawn new popup
@@ -772,21 +790,111 @@ final class PopupPanel: NSPanel, NSTextFieldDelegate, NSMenuDelegate {
     // MARK: - Display
 
     private func hideNavLabels() {
-        for label in navLabels { label.isHidden = true }
+        for label in navButtons { label.isHidden = true }
     }
 
     private func showNavLabels() {
-        for label in navLabels { label.isHidden = false }
+        for label in navButtons { label.isHidden = false }
+    }
+
+    private func showEscOnly() {
+        for (i, label) in navButtons.enumerated() {
+            label.isHidden = (i != 1)  // only [esc] (index 1)
+        }
     }
 
     private func updateDisplay() {
         guard !levels.isEmpty else { return }
         let name = levelNames[currentLevel]
-        levelLabel.stringValue = "[ \(name) ] \(currentLevel + 1)/5"
-        bodyText.stringValue = levels[currentLevel]
+        levelLabel.stringValue = "[ \(name) ] \(currentLevel + 1)/3"
+        if currentLevel == 2 {
+            // Examples level needs attributed string for quote vs explanation styling
+            bodyText.allowsEditingTextAttributes = true
+            bodyText.attributedStringValue = styledExamplesText(content: levels[currentLevel])
+        } else {
+            bodyText.allowsEditingTextAttributes = false
+            bodyText.stringValue = levels[currentLevel]
+        }
         resizeBodyText()
         showNavLabels()
-        scrollView.documentView?.scroll(.zero)
+        scrollToTop()
+    }
+
+    private func scrollToTop() {
+        guard let documentView = scrollView.documentView else { return }
+        let topY = max(0, documentView.frame.height - scrollView.contentSize.height)
+        documentView.scroll(NSPoint(x: 0, y: topY))
+    }
+
+    /// Style Level 3 (Examples) with quoted lines in primary color and explanations in muted color
+    private func styledExamplesText(content: String) -> NSAttributedString {
+        let baseFont = Theme.bodyFont(size: 12)
+        let baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
+            .foregroundColor: Theme.textPrimary
+        ]
+        let explainColor = Theme.exampleExplainText
+        let explainAttrs: [NSAttributedString.Key: Any] = [
+            .font: Theme.bodyFont(size: 11.5, weight: .regular),
+            .foregroundColor: explainColor
+        ]
+
+        // Paragraph style with spacing between examples
+        let exampleSpacing = NSMutableParagraphStyle()
+        exampleSpacing.paragraphSpacingBefore = 12
+
+        let result = NSMutableAttributedString()
+        let paragraphs = content.components(separatedBy: "\n\n")
+
+        for (i, paragraph) in paragraphs.enumerated() {
+            let lines = paragraph.components(separatedBy: "\n")
+            for (j, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { continue }
+
+                if trimmed.hasPrefix("\"") {
+                    var attrs = baseAttrs
+                    // Add top spacing before each example's quote (except the first)
+                    if i > 0 && j == 0 {
+                        let para = NSMutableParagraphStyle()
+                        para.paragraphSpacingBefore = 14
+                        attrs[.paragraphStyle] = para
+                    }
+                    result.append(NSAttributedString(string: (result.length > 0 ? "\n" : "") + line, attributes: attrs))
+                } else {
+                    result.append(NSAttributedString(string: "\n" + line, attributes: explainAttrs))
+                }
+            }
+        }
+
+        return result
+    }
+
+    /// Truncate text at word boundary to fit within the given pixel width
+    private func truncateKeywordToFit(_ text: String) -> String {
+        let font = keywordLabel.font ?? Theme.monoFont(size: 11, weight: .medium)
+        let maxWidth = keywordLabel.frame.width
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let prefixed = "> \(text)"
+
+        if (prefixed as NSString).size(withAttributes: attrs).width <= maxWidth {
+            return text
+        }
+
+        // Find longest word-boundary prefix that fits
+        var end = text.count
+        while end > 0 {
+            let candidate = String(text.prefix(end))
+            let display = "> \(candidate)..."
+            if (display as NSString).size(withAttributes: attrs).width <= maxWidth {
+                if let lastSpace = candidate.lastIndex(of: " ") {
+                    return String(candidate[candidate.startIndex..<lastSpace]) + "..."
+                }
+                return candidate + "..."
+            }
+            end -= 1
+        }
+        return "..."
     }
 
     private func centerOnScreen() {

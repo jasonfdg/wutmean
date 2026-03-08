@@ -3,22 +3,26 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.chaukam.instant-explain</string>
+    <string>com.chaukam.wutmean</string>
     <key>CFBundleName</key>
-    <string>InstantExplain</string>
+    <string>wutmean</string>
     <key>CFBundleDisplayName</key>
-    <string>Instant Explain</string>
+    <string>wutmean</string>
     <key>CFBundleExecutable</key>
-    <string>InstantExplain</string>
+    <string>wutmean</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Instant Explain needs accessibility access to capture selected text.</string>
+    <string>wutmean needs accessibility access to capture selected text.</string>
 </dict>
 </plist>

@@ -3,7 +3,7 @@ import ApplicationServices
 import ServiceManagement
 import os.log
 
-private let log = OSLog(subsystem: "com.chaukam.instant-explain", category: "text-selection")
+private let log = OSLog(subsystem: "com.chaukam.wutmean", category: "text-selection")
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -17,38 +17,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Config.ensureConfigExists()
-        guard let config = Config.load() else {
-            showConfigAlert()
-            return
-        }
+        let config = Config.load()
         currentConfig = config
-        explainer = Explainer(apiKey: config.apiKey, model: config.model, maxTokens: config.maxTokens)
+        Theme.darkMode = config.darkMode
+
+        if let icnsURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: icnsURL) {
+            NSApp.applicationIconImage = icon
+        }
+
+        if let provider = APIProvider.provider(forModel: config.model),
+           let key = config.key(for: provider) {
+            explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
+        }
 
         if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
         }
 
-        // Menu bar
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        setupMenuBar()
+        setupHotkey()
+        setupSettingsCallbacks()
+        registerLoginItem()
+
+        if let warning = Config.loadWarning {
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "wutmean"
+                alert.informativeText = warning
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    private func setupMenuBar() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: "Instant Explain")
-            button.image?.size = NSSize(width: 18, height: 18)
+            button.image = makeMenuBarImage()
+            button.image?.isTemplate = true
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Instant Explain", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "wutmean", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Edit Prompt...", action: #selector(editPrompt), keyEquivalent: "p"))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "About", action: #selector(showAbout), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Test Explain", action: #selector(testExplain), keyEquivalent: "t"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
 
-        // Hotkey
+    private func makeMenuBarImage() -> NSImage {
+        let text = "wut"
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black
+        ]
+        let size = (text as NSString).size(withAttributes: attrs)
+        let imageSize = NSSize(width: ceil(size.width) + 2, height: 18)
+        let image = NSImage(size: imageSize, flipped: false) { rect in
+            let y = (rect.height - size.height) / 2
+            (text as NSString).draw(at: NSPoint(x: 1, y: y), withAttributes: attrs)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    private func setupHotkey() {
+        guard let config = currentConfig else { return }
         hotkeyListener.onHotkey = { [weak self] in
             self?.handleHotkey()
         }
@@ -57,8 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             modifiers: UInt32(config.hotkeyModifiers),
             doubleTap: config.hotkeyDoubleTap
         )
+    }
 
-        // Settings callbacks
+    private func setupSettingsCallbacks() {
         settingsPanel.onSave = { [weak self] config in
             self?.applyConfig(config)
         }
@@ -68,7 +111,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPanel.onStopRecording = { [weak self] in
             self?.hotkeyListener.resume()
         }
+    }
 
+    private func registerLoginItem() {
         if #available(macOS 13.0, *) {
             do {
                 try SMAppService.mainApp.register()
@@ -89,10 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return config.hotkeyDoubleTap ? "double-tap \(name)" : name
     }
 
-    /// 0-based index for the configured default level (clamped to 0...4)
+    /// 0-based index for the configured default level (clamped to 0...2)
     private var defaultLevelIndex: Int {
-        let level = currentConfig?.defaultLevel ?? 3
-        return max(0, min(4, level - 1))
+        let level = currentConfig?.defaultLevel ?? 1
+        return max(0, min(2, level - 1))
+    }
+
+    /// Configured output language
+    private var outputLanguage: String {
+        currentConfig?.outputLanguage ?? "English"
     }
 
     // MARK: - Config management
@@ -100,12 +150,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyConfig(_ config: Config) {
         Config.save(config)
         currentConfig = config
-        explainer = Explainer(apiKey: config.apiKey, model: config.model, maxTokens: config.maxTokens)
+        Theme.darkMode = config.darkMode
+        if let provider = APIProvider.provider(forModel: config.model),
+           let key = config.key(for: provider) {
+            explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
+        } else {
+            explainer = nil
+        }
         hotkeyListener.updateHotkey(
             keyCode: UInt32(config.hotkeyKeyCode),
             modifiers: UInt32(config.hotkeyModifiers),
             doubleTap: config.hotkeyDoubleTap
         )
+        for panel in popupStack where panel.isVisible {
+            panel.refreshTheme()
+        }
     }
 
     // MARK: - Hotkey handler
@@ -115,6 +174,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         if now - hotkeyDebounceTime < 0.25 { return }
         hotkeyDebounceTime = now
+
+        // No API key — show message in popup
+        if explainer == nil {
+            let panel = makePanel()
+            panel.showLoading(text: "Setup", defaultLevel: defaultLevelIndex)
+            panel.showError("No API key configured.\n\nGo to Settings (menu bar) and paste your API key(s) — Anthropic, OpenAI, or Google.")
+            return
+        }
+
+        // Prune deallocated panels
+        popupStack.removeAll(where: { !$0.isVisible })
 
         // Cap at max depth
         if popupStack.count >= maxPopupDepth {
@@ -132,47 +202,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let axResult = getSelectedTextViaAXWithContext(sourcePID: sourcePID)
 
         if let axResult, !axResult.text.isEmpty {
-            // AX succeeded — show panel with text immediately
             os_log("handleHotkey: AX extracted %d chars", log: log, type: .debug, axResult.text.count)
             let panel = makePanel()
             let offset = popupStack.dropLast().last?.frame.origin
             panel.showLoading(text: axResult.text, offsetFrom: offset, defaultLevel: defaultLevelIndex)
             startExplain(text: axResult.text, context: axResult.context, on: panel)
         } else {
-            // AX failed — show loading immediately, try async fallbacks (C1)
-            os_log("handleHotkey: AX failed, trying async fallbacks", log: log, type: .debug)
-            let panel = makePanel()
-            let offset = popupStack.dropLast().last?.frame.origin
-            panel.showLoading(text: "", offsetFrom: offset, defaultLevel: defaultLevelIndex)
+            // AX failed — try Cmd+C BEFORE showing panel (app must stay frontmost for Chrome)
+            os_log("handleHotkey: AX failed, trying Cmd+C before showing panel", log: log, type: .debug)
 
             Task { @MainActor in
-                // Cmd+C with async sleep (no main thread block)
                 if let text = await getSelectedTextViaCmdC(sourcePID: sourcePID), !text.isEmpty {
                     os_log("handleHotkey: Cmd+C succeeded (%d chars)", log: log, type: .debug, text.count)
-                    panel.updateKeyword(text)
+                    let panel = makePanel()
+                    let offset = popupStack.dropLast().last?.frame.origin
+                    panel.showLoading(text: text, offsetFrom: offset, defaultLevel: defaultLevelIndex)
                     startExplain(text: text, context: nil, on: panel)
                     return
                 }
 
-                // Cursor position (synchronous, fast)
                 if let result = getTextAtCursorPosition() {
                     os_log("handleHotkey: cursor extraction succeeded", log: log, type: .debug)
-                    panel.updateKeyword(result.keyword)
+                    let panel = makePanel()
+                    let offset = popupStack.dropLast().last?.frame.origin
+                    panel.showLoading(text: result.keyword, offsetFrom: offset, defaultLevel: defaultLevelIndex)
                     startExplain(text: result.keyword, context: result.context, on: panel)
                     return
                 }
 
                 os_log("handleHotkey: all stages failed", log: log, type: .debug)
+                let panel = makePanel()
+                let offset = popupStack.dropLast().last?.frame.origin
+                panel.showLoading(text: "", offsetFrom: offset, defaultLevel: defaultLevelIndex)
                 panel.showError("No text found.\n\nSelect text or hover over a word, then press \(hotkeyDisplayName).\n\nSome apps may need Accessibility permissions enabled in System Settings > Privacy & Security.")
             }
         }
     }
 
     private func startExplain(text: String, context: String?, on panel: PopupPanel) {
+        let language = outputLanguage
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                guard let result = try await explainer?.explain(text: text, context: context, onStreamToken: { [weak panel] token in
+                guard let result = try await explainer?.explain(text: text, context: context, language: language, onStreamToken: { [weak panel] token in
                     Task { @MainActor in
                         panel?.appendStreamToken(token)
                     }
@@ -196,15 +268,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = PopupPanel()
         popupStack.append(panel)
 
-        // Set the hotkey keycode so the panel lets it pass through
         if let config = currentConfig {
             panel.hotkeyKeyCode = UInt16(config.hotkeyKeyCode)
         }
 
-        panel.onFollowUp = { [weak self, weak panel] originalText, question in
-            guard let panel else { return }
-            self?.handleFollowUp(originalText: originalText, question: question, on: panel)
-        }
         panel.onExplainTerm = { [weak self, weak panel] term in
             guard let panel else { return }
             self?.explainTerm(term, on: panel)
@@ -215,7 +282,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDismiss = { [weak self, weak panel] in
             guard let self, let panel else { return }
             self.popupStack.removeAll(where: { $0 === panel })
-            // LIFO: make the new topmost panel key so it receives Esc next
             if let topPanel = self.popupStack.last {
                 topPanel.makeKeyAndOrderFront(nil)
             }
@@ -224,39 +290,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return panel
     }
 
-    private func handleFollowUp(originalText: String, question: String, on panel: PopupPanel) {
-        panel.showLoading(text: originalText, defaultLevel: defaultLevelIndex)
-
-        panel.explainTask?.cancel()
-        panel.explainTask = Task {
-            do {
-                guard let result = try await explainer?.explain(text: originalText, followUp: question, onStreamToken: { [weak panel] token in
-                    Task { @MainActor in
-                        panel?.appendStreamToken(token)
-                    }
-                }) else { return }
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    panel.showResult(result)
-                }
-            } catch is CancellationError {
-                // ignore
-            } catch {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    panel.showError(error.localizedDescription)
-                }
-            }
-        }
-    }
-
     private func explainTerm(_ term: String, on panel: PopupPanel) {
-        panel.showLoading(text: term, defaultLevel: defaultLevelIndex)
+        let defaultLevel = defaultLevelIndex
+        panel.showLoading(text: term, defaultLevel: defaultLevel)
 
+        let language = outputLanguage
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                guard let result = try await explainer?.explain(text: term, onStreamToken: { [weak panel] token in
+                guard let result = try await explainer?.explain(text: term, language: language, onStreamToken: { [weak panel] token in
                     Task { @MainActor in
                         panel?.appendStreamToken(token)
                     }
@@ -283,12 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let context: String?
     }
 
-    // Text extraction stages are now called individually from handleHotkey
-    // to allow async Cmd+C without blocking the main thread (C1)
-
     private func getSelectedTextViaAXWithContext(sourcePID: pid_t?) -> TextExtraction? {
-        // If we know the source app PID, target it directly instead of asking
-        // the system for the "focused app" (which may be us after panel activation)
         let appElement: AXUIElement
         if let pid = sourcePID {
             appElement = AXUIElementCreateApplication(pid)
@@ -299,7 +336,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 os_log("AX: could not get focused app", log: log, type: .debug)
                 return nil
             }
-            // swiftlint:disable:next force_cast — CF type always succeeds; AX API guarantees type
             appElement = focusedApp as! AXUIElement
         }
 
@@ -308,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             os_log("AX: could not get focused element", log: log, type: .debug)
             return nil
         }
-        let element = focusedElement as! AXUIElement // CF type — guaranteed by AX API
+        let element = focusedElement as! AXUIElement
 
         var selectedText: AnyObject?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
@@ -356,8 +392,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mouseLocation = NSEvent.mouseLocation
         os_log("cursor: mouse at (%{public}.0f, %{public}.0f)", log: log, type: .info, mouseLocation.x, mouseLocation.y)
 
-        // Convert Cocoa global coords (origin = bottom-left of primary screen)
-        // to CG coords (origin = top-left of primary screen)
         let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 0
         let cgPoint = CGPoint(
             x: mouseLocation.x,
@@ -373,13 +407,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        // Log the element role for debugging
+        // Skip elements belonging to our own app (popup may overlay the cursor position)
+        var elementPid: pid_t = 0
+        AXUIElementGetPid(element, &elementPid)
+        if elementPid == ProcessInfo.processInfo.processIdentifier {
+            os_log("cursor: element belongs to our app, skipping", log: log, type: .info)
+            return nil
+        }
+
         var roleValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue) == .success {
             os_log("cursor: element role = %{public}@", log: log, type: .info, roleValue as? String ?? "nil")
         }
 
-        // Try to get text: element itself, then children, then walk up to parents
         let (fullText, textElement) = getTextFromElementOrAncestors(element)
         guard let fullText, !fullText.isEmpty else {
             os_log("cursor: no text content found in element, children, or parents", log: log, type: .info)
@@ -390,10 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let targetElement = textElement ?? element
 
-        // Try to find character index at cursor position
         var charIndex: Int?
 
-        // Method 1: AXCharacterForPoint parameterized attribute
         var mutablePoint = cgPoint
         if let axPoint = AXValueCreate(AXValueType.cgPoint, &mutablePoint) {
             var resultValue: AnyObject?
@@ -405,7 +443,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Method 2: Fall back to insertion point / selected text range
         if charIndex == nil {
             var insertionValue: AnyObject?
             if AXUIElementCopyAttributeValue(targetElement, kAXSelectedTextRangeAttribute as CFString, &insertionValue) == .success {
@@ -419,7 +456,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let nsString = fullText as NSString
 
-        // Extract a meaningful phrase around the cursor position
         if let idx = charIndex, idx >= 0, idx < nsString.length {
             let phrase = extractPhrase(from: nsString, around: idx)
             guard !phrase.isEmpty else { return nil }
@@ -431,7 +467,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return (keyword: phrase, context: "..." + context + "...")
         }
 
-        // No char index — extract the sentence or first meaningful chunk
         os_log("cursor: no char index, using full text extraction", log: log, type: .info)
         let sentence = extractFirstSentence(from: fullText)
         guard !sentence.isEmpty else { return nil }
@@ -439,22 +474,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (keyword: sentence, context: context)
     }
 
-    /// Try to get text from element, its children, and then walk UP to parent/grandparent.
-    /// Returns the text and the element it came from (for AXCharacterForPoint targeting).
     private func getTextFromElementOrAncestors(_ element: AXUIElement) -> (String?, AXUIElement?) {
-        // Try this element and its children first
         if let text = getTextFromElement(element), !text.isEmpty {
             return (text, element)
         }
 
-        // Walk up to parent (up to 3 levels) — handles cases like <span> inside <p>
         var current = element
         for _ in 0..<3 {
             var parentValue: AnyObject?
             guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentValue) == .success else {
                 break
             }
-            let parent = parentValue as! AXUIElement // CF type — guaranteed by AX API
+            let parent = parentValue as! AXUIElement
             if let text = getTextFromElement(parent), !text.isEmpty {
                 os_log("cursor: found text in parent element", log: log, type: .info)
                 return (text, parent)
@@ -465,16 +496,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (nil, nil)
     }
 
-    /// Extract text from a single AX element via multiple strategies
     private func getTextFromElement(_ element: AXUIElement) -> String? {
-        // Strategy 1: kAXValueAttribute (text fields, text areas, web text nodes)
         var textValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue) == .success,
            let text = textValue as? String, !text.isEmpty {
             return text
         }
 
-        // Strategy 2: AXStringForRange — for elements that expose char count but not value
         var charCountValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, "AXNumberOfCharacters" as CFString, &charCountValue) == .success,
            let charCount = charCountValue as? Int, charCount > 0 {
@@ -489,28 +517,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Strategy 3: kAXTitleAttribute (buttons, labels, headings)
         var titleValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleValue) == .success,
            let title = titleValue as? String, !title.isEmpty {
             return title
         }
 
-        // Strategy 4: kAXDescriptionAttribute
         var descValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &descValue) == .success,
            let desc = descValue as? String, !desc.isEmpty {
             return desc
         }
 
-        // Strategy 5: Walk children to find text
         var childrenValue: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue) == .success,
            let children = childrenValue as? [AXUIElement] {
-            // Collect text from all text-bearing children (not just the first one)
             var collected: [String] = []
             for child in children.prefix(20) {
-                // Only go one level deep for children to avoid explosion
                 var cv: AnyObject?
                 if AXUIElementCopyAttributeValue(child, kAXValueAttribute as CFString, &cv) == .success,
                    let t = cv as? String, !t.isEmpty {
@@ -528,12 +551,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
-    /// Extract a meaningful phrase (clause or noun phrase) around a character index
     private func extractPhrase(from text: NSString, around index: Int) -> String {
         let length = text.length
         guard length > 0 else { return "" }
 
-        // Find sentence boundaries around the index
         let sentenceBreakers = CharacterSet(charactersIn: ".!?;\n\r")
         var sentStart = index
         while sentStart > 0 {
@@ -545,7 +566,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         while sentEnd < length {
             let ch = text.character(at: sentEnd)
             if let scalar = Unicode.Scalar(ch), sentenceBreakers.contains(scalar) {
-                sentEnd += 1  // include the period
+                sentEnd += 1
                 break
             }
             sentEnd += 1
@@ -554,12 +575,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sentence = text.substring(with: NSRange(location: sentStart, length: sentEnd - sentStart))
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // If the sentence is short enough (< 80 chars), use it directly
         if sentence.count <= 80 {
             return sentence
         }
 
-        // Otherwise, extract a clause: find comma/semicolon/dash boundaries within ±40 chars
         let clauseBreakers = CharacterSet(charactersIn: ",;:—–")
         var clauseStart = index
         var charsLeft = 40
@@ -568,7 +587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             charsLeft -= 1
             let ch = text.character(at: clauseStart)
             if let scalar = Unicode.Scalar(ch), clauseBreakers.contains(scalar) {
-                clauseStart += 1  // skip the comma
+                clauseStart += 1
                 break
             }
         }
@@ -585,7 +604,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Extract the first meaningful sentence from a text block
     private func extractFirstSentence(from text: String) -> String {
         let sentenceBreakers = CharacterSet(charactersIn: ".!?;\n")
         let components = text.components(separatedBy: sentenceBreakers)
@@ -593,7 +611,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.count >= 5 { return trimmed }
         }
-        // Fall back to first 60 chars
         let prefix = String(text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
         return prefix
     }
@@ -616,7 +633,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyUp?.post(tap: CGEventTapLocation.cgAnnotatedSessionEventTap)
         }
 
-        // Async sleep — yields the main thread (C1)
         try? await Task.sleep(nanoseconds: 200_000_000)
 
         guard pasteboard.changeCount != oldChangeCount else {
@@ -627,21 +643,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Menu actions
-
-    private func showConfigAlert() {
-        let alert = NSAlert()
-        alert.messageText = "API Key Needed"
-        alert.informativeText = "Instant Explain needs an Anthropic API key to work.\n\nOpen the config file and paste your key (starts with sk-ant-...).\n\nFile location:\n\(Config.configFile.path)"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open Config")
-        alert.addButton(withTitle: "Quit")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            NSWorkspace.shared.open(Config.configFile)
-        }
-        NSApp.terminate(nil)
-    }
 
     @objc private func testExplain() {
         let testText = "Quantum entanglement is a phenomenon where two particles become interconnected and the quantum state of one instantly influences the other, regardless of distance."
@@ -656,18 +657,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
-        if let config = currentConfig ?? Config.load() {
-            settingsPanel.loadConfig(config)
-        }
+        let config = currentConfig ?? Config.load()
+        settingsPanel.loadConfig(config)
         settingsPanel.showCentered()
     }
 
     @objc private func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "Instant Explain"
-        alert.informativeText = "Select text anywhere, press \(hotkeyDisplayName) to get instant explanations at 5 levels of complexity.\n\nLeft/Right arrows to switch levels.\nEnter for follow-up questions.\nEsc to dismiss."
+        alert.messageText = "wutmean"
+        alert.informativeText = "Select text anywhere, press \(hotkeyDisplayName) to get instant explanations at 3 levels: Plain, Technical, and Examples.\n\nLeft/Right arrows to switch levels.\nEsc to dismiss."
         alert.alertStyle = .informational
         alert.runModal()
     }
 }
-
