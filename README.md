@@ -17,6 +17,7 @@ Three levels (Plain → Distill → Transfer), arrow keys to switch, related ter
 ### Homebrew (recommended)
 
 ```
+brew tap jasonfdg/tap
 brew install --cask wutmean
 ```
 
