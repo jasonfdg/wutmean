@@ -10,8 +10,7 @@ wutmean makes it take two seconds. Select text. Double-tap F1. A popup shows up 
 
 Three levels (Plain → Distill → Transfer), arrow keys to switch, related terms you can click to keep going. Anthropic, OpenAI, or Google — bring your own key. That's the whole thing.
 
-<!-- Replace with your actual demo GIF -->
-![demo](https://github.com/user-attachments/assets/PLACEHOLDER-REPLACE-WITH-ACTUAL-GIF)
+![demo](autoresearch.gif)
 
 ## Install
 
