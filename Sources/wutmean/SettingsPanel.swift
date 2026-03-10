@@ -22,9 +22,16 @@ final class SettingsPanel: NSPanel {
     private let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let hotkeyButton = NSButton()
     private let doubleTapCheckbox = NSButton(checkboxWithTitle: "Double-tap", target: nil, action: nil)
+    private let claudeCodeCheckbox = NSButton(checkboxWithTitle: "Use Claude Code CLI (no API key needed)", target: nil, action: nil)
 
     private var containerView: NSView!
     private var settingsLabels: [NSTextField] = []
+    private var sectionHeaders: [NSTextField] = []
+    private var dividers: [NSView] = []
+    private var cliCardView: NSView!
+    private var cliLabel: NSTextField!
+    private var cliSubtitle: NSTextField!
+    private var modelLabel: NSTextField!
     private var hintLabel: NSTextField!
     private var saveButton: NSButton!
     private var cancelButton: NSButton!
@@ -62,7 +69,7 @@ final class SettingsPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -73,7 +80,8 @@ final class SettingsPanel: NSPanel {
     }
 
     private func setupUI() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 520))
+        let panelH: CGFloat = 560
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: panelH))
         container.wantsLayer = true
         self.contentView = container
         self.containerView = container
@@ -81,45 +89,84 @@ final class SettingsPanel: NSPanel {
         let font = Theme.fixedFont(size: 12, weight: .regular)
         let labelFont = Theme.fixedFont(size: 12, weight: .medium)
 
-        var y: CGFloat = 472
-        let labelX: CGFloat = 20
-        let fieldX: CGFloat = 150
-        let fieldW: CGFloat = 260
-        let rowH: CGFloat = 24
-        let gap: CGFloat = 34
-        let keyGap: CGFloat = 30
+        // `y` = baseline of next element (Cocoa: y=0 at bottom)
+        var y: CGFloat = panelH - 34
+        let lx: CGFloat = 20      // label x
+        let fx: CGFloat = 150     // field x
+        let fw: CGFloat = 260     // field width
+        let rh: CGFloat = 24      // row height
+        let rowGap: CGFloat = 30  // between standard rows
+        let keyGap: CGFloat = 28  // between API key rows (tighter)
 
-        // ── API Keys section ──
-        // Each row: "Provider:" label + field + eye toggle
+        // ── PROVIDER section ──
+        addSectionHeader("PROVIDER", x: lx, y: y, to: container)
+        y -= 6
+
+        // Claude Code CLI card
+        let cardH: CGFloat = 42
+        let cardY = y - cardH      // card bottom
+        let card = NSView(frame: NSRect(x: lx, y: cardY, width: 400, height: cardH))
+        card.wantsLayer = true
+        card.layer?.cornerRadius = 6
+        card.layer?.borderWidth = 1
+        container.addSubview(card)
+        self.cliCardView = card
+
+        // Accent stripe on left
+        let stripe = NSView(frame: NSRect(x: 0, y: 0, width: 3, height: cardH))
+        stripe.wantsLayer = true
+        stripe.layer?.backgroundColor = Theme.accent.cgColor
+        stripe.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        stripe.layer?.cornerRadius = 6
+        card.addSubview(stripe)
+
+        // Checkbox with empty title + separate orange label (NSButton ignores attributedTitle foreground in dark mode)
+        claudeCodeCheckbox.title = ""
+        claudeCodeCheckbox.frame = NSRect(x: 12, y: cardH - 26, width: 18, height: 20)
+        claudeCodeCheckbox.target = self
+        claudeCodeCheckbox.action = #selector(claudeCodeToggled)
+        card.addSubview(claudeCodeCheckbox)
+
+        let cliLbl = NSTextField(labelWithString: "Use Claude Code CLI")
+        cliLbl.font = Theme.fixedFont(size: 12, weight: .semibold)
+        cliLbl.textColor = Theme.accent
+        cliLbl.frame = NSRect(x: 32, y: cardH - 25, width: 260, height: 18)
+        card.addSubview(cliLbl)
+        self.cliLabel = cliLbl
+
+        let subtitle = NSTextField(labelWithString: "No API key needed — uses your local Claude installation")
+        subtitle.font = Theme.fixedFont(size: 10, weight: .regular)
+        subtitle.frame = NSRect(x: 32, y: 3, width: 360, height: 14)
+        card.addSubview(subtitle)
+        self.cliSubtitle = subtitle
+
+        y = cardY - 30  // gap below card before API key rows
+
+        // API Key rows
         let providers: [APIProvider] = [.anthropic, .openai, .google]
         for (i, provider) in providers.enumerated() {
             let rowY = y - CGFloat(i) * keyGap
 
-            // Provider name as the left-hand label
             let provLabel = NSTextField(labelWithString: provider.displayName + ":")
             provLabel.font = labelFont
-            provLabel.textColor = Theme.textSecondary
-            provLabel.frame = NSRect(x: labelX, y: rowY, width: 120, height: 20)
+            provLabel.frame = NSRect(x: lx, y: rowY, width: 120, height: 20)
             container.addSubview(provLabel)
             settingsLabels.append(provLabel)
 
-            // Status indicator (shows detected provider or —)
             let statusLabel = NSTextField(labelWithString: "")
             statusLabel.font = Theme.fixedFont(size: 9, weight: .medium)
             statusLabel.alignment = .right
-            statusLabel.frame = NSRect(x: fieldX + fieldW - 24, y: rowY + rowH + 2, width: 24, height: 12)
-            statusLabel.isHidden = true  // shown only when key is entered
+            statusLabel.frame = NSRect(x: fx + fw - 24, y: rowY + rh + 2, width: 24, height: 12)
+            statusLabel.isHidden = true
             container.addSubview(statusLabel)
 
-            // Secure field
             let secure = NSSecureTextField()
             secure.font = font
             secure.placeholderString = provider.placeholder
-            secure.frame = NSRect(x: fieldX, y: rowY, width: fieldW - 28, height: rowH)
+            secure.frame = NSRect(x: fx, y: rowY, width: fw - 28, height: rh)
             secure.focusRingType = .none
             container.addSubview(secure)
 
-            // Plain field (hidden by default)
             let plain = NSTextField()
             plain.font = font
             plain.placeholderString = provider.placeholder
@@ -128,14 +175,13 @@ final class SettingsPanel: NSPanel {
             plain.isHidden = true
             container.addSubview(plain)
 
-            // Eye toggle
             let eye = NSButton()
             eye.bezelStyle = .inline
             eye.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Show key")
             eye.title = ""
             eye.imagePosition = .imageOnly
             eye.isBordered = false
-            eye.frame = NSRect(x: fieldX + fieldW - 24, y: rowY + 2, width: 20, height: 20)
+            eye.frame = NSRect(x: fx + fw - 24, y: rowY + 2, width: 20, height: 20)
             eye.tag = i
             eye.target = self
             eye.action = #selector(toggleRowVisibility(_:))
@@ -152,18 +198,25 @@ final class SettingsPanel: NSPanel {
             ))
         }
 
-        y -= CGFloat(providers.count) * keyGap + 10
+        y -= CGFloat(providers.count) * keyGap + 4
 
-        // ── Model ──
-        addLabel("Model:", font: labelFont, x: labelX, y: y, to: container)
+        // Model
+        let mLabel = addLabel("Model:", font: labelFont, x: lx, y: y, to: container)
+        self.modelLabel = mLabel
         modelPopup.font = font
-        modelPopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        modelPopup.frame = NSRect(x: fx, y: y - 2, width: fw, height: rh + 2)
         container.addSubview(modelPopup)
 
-        y -= gap
+        y -= 16
+        addDivider(y: y, to: container)
+        y -= 20
 
-        // ── Font ──
-        addLabel("Font:", font: labelFont, x: labelX, y: y, to: container)
+        // ── DISPLAY section ──
+        addSectionHeader("DISPLAY", x: lx, y: y, to: container)
+        y -= 24
+
+        // Font
+        addLabel("Font:", font: labelFont, x: lx, y: y, to: container)
         fontPopup.font = font
         for ff in availableFonts {
             let item = NSMenuItem(title: ff.displayName, action: nil, keyEquivalent: "")
@@ -173,93 +226,95 @@ final class SettingsPanel: NSPanel {
             )
             fontPopup.menu?.addItem(item)
         }
-        fontPopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        fontPopup.frame = NSRect(x: fx, y: y - 2, width: fw, height: rh + 2)
         fontPopup.target = self
         fontPopup.action = #selector(fontChanged)
         container.addSubview(fontPopup)
 
-        y -= gap
+        y -= rowGap
 
-        // ── Font Size (slider + value) ──
-        addLabel("Size:", font: labelFont, x: labelX, y: y, to: container)
-
+        // Font Size
+        addLabel("Size:", font: labelFont, x: lx, y: y, to: container)
         fontSizeSlider.minValue = 10
         fontSizeSlider.maxValue = 18
         fontSizeSlider.doubleValue = 12
         fontSizeSlider.numberOfTickMarks = 9
         fontSizeSlider.allowsTickMarkValuesOnly = true
         fontSizeSlider.isContinuous = true
-        fontSizeSlider.frame = NSRect(x: fieldX, y: y - 2, width: fieldW - 40, height: rowH)
+        fontSizeSlider.frame = NSRect(x: fx, y: y - 2, width: fw - 40, height: rh)
         fontSizeSlider.target = self
         fontSizeSlider.action = #selector(fontSizeChanged)
         container.addSubview(fontSizeSlider)
 
         fontSizeLabel.font = Theme.fixedFont(size: 12, weight: .medium)
         fontSizeLabel.alignment = .right
-        fontSizeLabel.frame = NSRect(x: fieldX + fieldW - 36, y: y, width: 36, height: 20)
+        fontSizeLabel.frame = NSRect(x: fx + fw - 36, y: y, width: 36, height: 20)
         container.addSubview(fontSizeLabel)
         settingsLabels.append(fontSizeLabel)
 
-        y -= gap
+        y -= rowGap
 
-        // ── Default Level ──
-        addLabel("Default Level:", font: labelFont, x: labelX, y: y, to: container)
+        // Default Level
+        addLabel("Default Level:", font: labelFont, x: lx, y: y, to: container)
         levelPopup.font = font
         for opt in levelOptions { levelPopup.addItem(withTitle: opt) }
-        levelPopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        levelPopup.frame = NSRect(x: fx, y: y - 2, width: fw, height: rh + 2)
         container.addSubview(levelPopup)
 
-        y -= gap
+        y -= rowGap
 
-        // ── Language ──
-        addLabel("Language:", font: labelFont, x: labelX, y: y, to: container)
+        // Language + Theme on one row
+        addLabel("Language:", font: labelFont, x: lx, y: y, to: container)
         languagePopup.font = font
         for opt in languageOptions { languagePopup.addItem(withTitle: opt.0) }
-        languagePopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        languagePopup.frame = NSRect(x: fx, y: y - 2, width: 110, height: rh + 2)
         container.addSubview(languagePopup)
 
-        y -= gap
-
-        // ── Theme ──
-        addLabel("Theme:", font: labelFont, x: labelX, y: y, to: container)
+        let themeLabel = addLabel("Theme:", font: labelFont, x: fx + 120, y: y, to: container)
+        themeLabel.frame = NSRect(x: fx + 118, y: y, width: 56, height: 20)
         themePopup.font = font
         themePopup.addItem(withTitle: "Dark")
         themePopup.addItem(withTitle: "Light")
-        themePopup.frame = NSRect(x: fieldX, y: y - 2, width: fieldW, height: rowH + 2)
+        themePopup.frame = NSRect(x: fx + 176, y: y - 2, width: 84, height: rh + 2)
         container.addSubview(themePopup)
 
-        y -= gap
+        y -= 16
+        addDivider(y: y, to: container)
+        y -= 20
 
-        // ── Hotkey ──
-        addLabel("Hotkey:", font: labelFont, x: labelX, y: y, to: container)
+        // ── CONTROLS section ──
+        addSectionHeader("CONTROLS", x: lx, y: y, to: container)
+        y -= 24
 
+        // Hotkey
+        addLabel("Hotkey:", font: labelFont, x: lx, y: y, to: container)
         hotkeyButton.title = "F5"
         hotkeyButton.font = Theme.fixedFont(size: 12, weight: .medium)
         hotkeyButton.bezelStyle = .rounded
-        hotkeyButton.frame = NSRect(x: fieldX, y: y - 2, width: 100, height: rowH + 4)
+        hotkeyButton.frame = NSRect(x: fx, y: y - 2, width: 100, height: rh + 4)
         hotkeyButton.target = self
         hotkeyButton.action = #selector(startRecordingHotkey)
         container.addSubview(hotkeyButton)
 
         doubleTapCheckbox.font = font
-        doubleTapCheckbox.frame = NSRect(x: fieldX + 110, y: y, width: 140, height: rowH)
+        doubleTapCheckbox.frame = NSRect(x: fx + 110, y: y, width: 140, height: rh)
         doubleTapCheckbox.state = .off
         container.addSubview(doubleTapCheckbox)
 
         y -= 16
         let hint = NSTextField(labelWithString: "click button, then press desired key")
         hint.font = Theme.fixedFont(size: 10, weight: .regular)
-        hint.frame = NSRect(x: fieldX, y: y, width: fieldW, height: 14)
+        hint.frame = NSRect(x: fx, y: y, width: fw, height: 14)
         container.addSubview(hint)
         self.hintLabel = hint
 
-        // ── Save / Cancel ──
+        // ── Save / Cancel (pinned to bottom) ──
         let saveBtn = NSButton(title: "Save", target: self, action: #selector(saveSettings))
         saveBtn.font = Theme.fixedFont(size: 12, weight: .bold)
         saveBtn.isBordered = false
         saveBtn.wantsLayer = true
         saveBtn.layer?.cornerRadius = 6
-        saveBtn.frame = NSRect(x: 340, y: 16, width: 80, height: 30)
+        saveBtn.frame = NSRect(x: 340, y: 14, width: 80, height: 30)
         saveBtn.keyEquivalent = "\r"
         container.addSubview(saveBtn)
         self.saveButton = saveBtn
@@ -269,18 +324,35 @@ final class SettingsPanel: NSPanel {
         cancelBtn.isBordered = false
         cancelBtn.wantsLayer = true
         cancelBtn.layer?.cornerRadius = 6
-        cancelBtn.frame = NSRect(x: 250, y: 16, width: 80, height: 30)
+        cancelBtn.frame = NSRect(x: 250, y: 14, width: 80, height: 30)
         cancelBtn.keyEquivalent = "\u{1b}"
         container.addSubview(cancelBtn)
         self.cancelButton = cancelBtn
     }
 
-    private func addLabel(_ text: String, font: NSFont, x: CGFloat, y: CGFloat, to view: NSView) {
+    @discardableResult
+    private func addLabel(_ text: String, font: NSFont, x: CGFloat, y: CGFloat, to view: NSView) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = font
         label.frame = NSRect(x: x, y: y, width: 120, height: 20)
         view.addSubview(label)
         settingsLabels.append(label)
+        return label
+    }
+
+    private func addSectionHeader(_ text: String, x: CGFloat, y: CGFloat, to view: NSView) {
+        let label = NSTextField(labelWithString: text)
+        label.font = Theme.fixedFont(size: 11, weight: .bold)
+        label.frame = NSRect(x: x, y: y, width: 200, height: 16)
+        view.addSubview(label)
+        sectionHeaders.append(label)
+    }
+
+    private func addDivider(y: CGFloat, to view: NSView) {
+        let line = NSView(frame: NSRect(x: 20, y: y, width: 400, height: 1))
+        line.wantsLayer = true
+        view.addSubview(line)
+        dividers.append(line)
     }
 
     // MARK: - Theme
@@ -292,6 +364,32 @@ final class SettingsPanel: NSPanel {
         for label in settingsLabels {
             label.textColor = Theme.textSecondary
         }
+
+        for header in sectionHeaders {
+            header.textColor = Theme.textTertiary
+        }
+
+        for div in dividers {
+            div.layer?.backgroundColor = Theme.separator.cgColor
+        }
+
+        // Claude Code CLI card — accent border + subtle fill
+        let cardBorderColor = Theme.darkMode
+            ? Theme.accent.withAlphaComponent(0.3)
+            : Theme.accent.withAlphaComponent(0.2)
+        cliCardView.layer?.backgroundColor = Theme.darkMode
+            ? NSColor(red: 0.15, green: 0.12, blue: 0.08, alpha: 1).cgColor
+            : NSColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 1).cgColor
+        cliCardView.layer?.borderColor = cardBorderColor.cgColor
+
+        // Orange CLI label + accent checkbox glyph
+        cliLabel.textColor = Theme.accent
+        cliLabel.font = Theme.fixedFont(size: 12, weight: .semibold)
+        claudeCodeCheckbox.contentTintColor = Theme.accent
+        cliSubtitle.textColor = Theme.textTertiary
+
+        // Model label
+        modelLabel.textColor = Theme.textSecondary
 
         for row in keyRows {
             row.secureField.textColor = Theme.textPrimary
@@ -313,6 +411,29 @@ final class SettingsPanel: NSPanel {
 
         cancelButton.layer?.backgroundColor = Theme.buttonSecondaryBackground.cgColor
         cancelButton.contentTintColor = Theme.textPrimary
+    }
+
+    // MARK: - Claude Code toggle
+
+    @objc private func claudeCodeToggled() {
+        let useCLI = claudeCodeCheckbox.state == .on
+        let dim: CGFloat = useCLI ? 0.35 : 1.0
+        // Grey out API key fields, provider labels, and model when CLI is enabled
+        for (i, row) in keyRows.enumerated() {
+            row.secureField.isEnabled = !useCLI
+            row.plainField.isEnabled = !useCLI
+            row.eyeButton.isEnabled = !useCLI
+            row.secureField.alphaValue = dim
+            row.plainField.alphaValue = dim
+            row.eyeButton.alphaValue = dim
+            // Grey out the provider label (stored in settingsLabels, first N entries are provider labels)
+            if i < settingsLabels.count {
+                settingsLabels[i].alphaValue = dim
+            }
+        }
+        modelPopup.isEnabled = !useCLI
+        modelPopup.alphaValue = dim
+        modelLabel.alphaValue = dim
     }
 
     // MARK: - Font live preview
@@ -343,11 +464,16 @@ final class SettingsPanel: NSPanel {
         for label in settingsLabels {
             label.font = labelFont
         }
+        for header in sectionHeaders {
+            header.font = Theme.fixedFont(size: 11, weight: .bold)
+        }
         for row in keyRows {
             row.secureField.font = font
             row.plainField.font = font
             row.label.font = Theme.fixedFont(size: 9, weight: .medium)
         }
+        cliLabel.font = Theme.fixedFont(size: 12, weight: .semibold)
+        cliSubtitle.font = Theme.fixedFont(size: 10, weight: .regular)
         modelPopup.font = font
         fontPopup.font = font
         fontSizeLabel.font = Theme.fixedFont(size: 12, weight: .medium)
@@ -485,6 +611,10 @@ final class SettingsPanel: NSPanel {
         hotkeyButton.title = recordedKeyName
         doubleTapCheckbox.state = config.hotkeyDoubleTap ? .on : .off
 
+        // Claude Code CLI checkbox
+        claudeCodeCheckbox.state = config.useClaudeCode ? .on : .off
+        claudeCodeToggled()  // Apply greyed-out state
+
         // Load cached models first
         let cached = Config.loadModelsCache()
         var models: [APIProvider: [String]] = [:]
@@ -597,7 +727,8 @@ final class SettingsPanel: NSPanel {
             outputLanguage: language,
             darkMode: isDarkMode,
             fontFamily: selectedFont.rawValue,
-            fontSize: Int(fontSizeSlider.doubleValue)
+            fontSize: Int(fontSizeSlider.doubleValue),
+            useClaudeCode: claudeCodeCheckbox.state == .on
         )
         onSave?(config)
 

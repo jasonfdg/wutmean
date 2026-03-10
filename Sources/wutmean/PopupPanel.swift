@@ -3,10 +3,15 @@ import Cocoa
 final class PopupPanel: NSPanel, NSMenuDelegate {
     private let levelNames = ["Plain", "Distill", "Transfer"]
     private var currentLevel = 0
-    private var levels: [String] = []
     private var relatedTerms: [String] = []
     private var searchPhrases: [String] = []
     private var originalText = ""
+
+    /// Per-level state for parallel streaming
+    enum LevelState { case loading, streaming, complete }
+    private var levelTexts: [String] = ["", "", ""]
+    private var levelStates: [LevelState] = [.loading, .loading, .loading]
+    private var metaLoading = true
 
     /// Per-panel task ownership (C4): each panel owns its explain task
     var explainTask: Task<Void, Never>?
@@ -206,7 +211,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         for label in relatedLabels {
             label.font = Theme.bodyFont(size: 11, weight: .medium)
         }
-        if !levels.isEmpty { updateDisplay() }
+        updateDisplayForCurrentState()
         layoutSubviews()
     }
 
@@ -229,7 +234,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         for label in relatedLabels {
             label.textColor = label.stringValue == "·" ? Theme.relatedDot : Theme.relatedText
         }
-        if !levels.isEmpty { updateDisplay() }
+        updateDisplayForCurrentState()
     }
 
     private func setupNavHints() {
@@ -349,11 +354,11 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     }
 
     @objc private func navSimpler() {
-        if currentLevel > 0 { currentLevel -= 1; updateDisplay() }
+        if currentLevel > 0 { switchToLevel(currentLevel - 1) }
     }
 
     @objc private func navHarder() {
-        if currentLevel < 2 { currentLevel += 1; updateDisplay() }
+        if currentLevel < 2 { switchToLevel(currentLevel + 1) }
     }
 
     @objc private func openSettingsAction() {
@@ -363,8 +368,8 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     // MARK: - Action buttons
 
     @objc private func actionCopy() {
-        guard !levels.isEmpty else { return }
-        let text = levels[currentLevel]
+        guard levelStates[currentLevel] == .complete else { return }
+        let text = levelTexts[currentLevel]
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
 
@@ -603,8 +608,11 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
 
     func showLoading(text: String, offsetFrom: NSPoint? = nil, defaultLevel: Int = 0) {
         self.originalText = text
-        self.levels = []
+        self.levelTexts = ["", "", ""]
+        self.levelStates = [.loading, .loading, .loading]
+        self.metaLoading = true
         self.relatedTerms = []
+        self.searchPhrases = []
         self.currentLevel = defaultLevel
         self.pendingTokens = ""
         self.flushTimer?.cancel()
@@ -626,7 +634,7 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
             let display = truncateKeywordToFit(text)
             keywordLabel.stringValue = "> \(display)"
         }
-        showEscOnly()
+        showNavLabels()
         copyButton.isHidden = true
         googleButton.isHidden = true
         youtubeButton.isHidden = true
@@ -667,8 +675,20 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     }
 
     func appendStreamToken(_ token: String) {
-        pendingTokens += token
-        scheduleFlush()
+        appendLevelToken(currentLevel, token)
+    }
+
+    func appendLevelToken(_ level: Int, _ token: String) {
+        guard level >= 0 && level < 3 else { return }
+        if levelStates[level] == .loading {
+            levelStates[level] = .streaming
+        }
+        if level == currentLevel {
+            pendingTokens += token
+            scheduleFlush()
+        } else {
+            levelTexts[level] += token
+        }
     }
 
     private func scheduleFlush() {
@@ -686,12 +706,9 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         flushTimer?.cancel()
         flushTimer = nil
         guard !pendingTokens.isEmpty else { return }
-        // Strip cursor before appending new tokens
-        var text = bodyText.stringValue
-        if text.hasSuffix("▌") { text = String(text.dropLast()) }
-        text += pendingTokens
+        levelTexts[currentLevel] += pendingTokens
         pendingTokens = ""
-        // Re-add cursor if blinking
+        var text = levelTexts[currentLevel]
         if isStreamingActive && cursorVisible { text += "▌" }
         bodyText.stringValue = text
         resizeBodyText()
@@ -736,18 +753,44 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     }
 
     func showResult(_ result: Explainer.ExplanationResult) {
-        stopCursorBlink()
-        isStreamingActive = false
-        bodyText.isSelectable = true
-        flushPendingTokens()
-        self.levels = result.levels
-        self.relatedTerms = result.relatedTerms
-        self.searchPhrases = result.searchPhrases
-        copyButton.isHidden = false
-        googleButton.isHidden = false
-        youtubeButton.isHidden = false
+        for (i, text) in result.levels.enumerated() where i < 3 {
+            completeLevelStreaming(i, text: text)
+        }
+        setMetaResults(relatedTerms: result.relatedTerms, searchPhrases: result.searchPhrases)
+    }
+
+    func completeLevelStreaming(_ level: Int, text: String) {
+        guard level >= 0 && level < 3 else { return }
+        levelTexts[level] = text.isEmpty ? "No explanation available." : text
+        levelStates[level] = .complete
+        if level == currentLevel {
+            pendingTokens = ""
+            flushTimer?.cancel()
+            flushTimer = nil
+            updateDisplayForCurrentState()
+        }
+    }
+
+    func setMetaResults(relatedTerms: [String], searchPhrases: [String]) {
+        self.relatedTerms = relatedTerms
+        self.searchPhrases = searchPhrases
+        self.metaLoading = false
         layoutRelatedLabels()
-        updateDisplay()
+        googleButton.isHidden = searchPhrases.isEmpty
+        youtubeButton.isHidden = searchPhrases.isEmpty
+    }
+
+    private func switchToLevel(_ newLevel: Int) {
+        guard newLevel != currentLevel, newLevel >= 0, newLevel < 3 else { return }
+        // Flush pending tokens for current level
+        if !pendingTokens.isEmpty {
+            levelTexts[currentLevel] += pendingTokens
+            pendingTokens = ""
+        }
+        flushTimer?.cancel()
+        flushTimer = nil
+        currentLevel = newLevel
+        updateDisplayForCurrentState()
     }
 
     func showError(_ message: String) {
@@ -757,7 +800,10 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         flushTimer?.cancel()
         flushTimer = nil
         pendingTokens = ""
+        levelTexts = ["", "", ""]
+        levelStates = [.loading, .loading, .loading]
         levelLabel.stringValue = "wutmean? · ERROR"
+        bodyText.allowsEditingTextAttributes = false
         bodyText.stringValue = message
         resizeBodyText()
         relatedContainer.isHidden = true
@@ -776,6 +822,9 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
         flushTimer?.cancel()
         flushTimer = nil
         pendingTokens = ""
+        levelTexts = ["", "", ""]
+        levelStates = [.loading, .loading, .loading]
+        metaLoading = true
         orderOut(nil)
         navContainer.isHidden = false
         removeKeyMonitor()
@@ -805,15 +854,13 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
             dismissPanel()
             return true
         case 123:  // Left arrow
-            if currentLevel > 0 && !levels.isEmpty {
-                currentLevel -= 1
-                updateDisplay()
+            if currentLevel > 0 {
+                switchToLevel(currentLevel - 1)
             }
             return true
         case 124:  // Right arrow
-            if currentLevel < 2 && !levels.isEmpty {
-                currentLevel += 1
-                updateDisplay()
+            if currentLevel < 2 {
+                switchToLevel(currentLevel + 1)
             }
             return true
         case hotkeyKeyCode:  // configured hotkey — let it pass through to spawn new popup
@@ -846,20 +893,49 @@ final class PopupPanel: NSPanel, NSMenuDelegate {
     }
 
     private func updateDisplay() {
-        guard !levels.isEmpty else { return }
+        updateDisplayForCurrentState()
+    }
+
+    private func updateDisplayForCurrentState() {
         let name = levelNames[currentLevel]
         levelLabel.stringValue = "wutmean? · \(name) · \(currentLevel + 1)/3"
-        if currentLevel == 2 {
-            // Examples level needs attributed string for quote vs explanation styling
-            bodyText.allowsEditingTextAttributes = true
-            bodyText.attributedStringValue = styledExamplesText(content: levels[currentLevel])
-        } else {
+
+        switch levelStates[currentLevel] {
+        case .loading:
             bodyText.allowsEditingTextAttributes = false
-            bodyText.stringValue = levels[currentLevel]
+            bodyText.isSelectable = false
+            bodyText.stringValue = cursorVisible ? "▌" : ""
+            isStreamingActive = true
+            if cursorTimer == nil { startCursorBlink() }
+        case .streaming:
+            bodyText.allowsEditingTextAttributes = false
+            bodyText.isSelectable = false
+            var text = levelTexts[currentLevel]
+            if cursorVisible { text += "▌" }
+            bodyText.stringValue = text
+            isStreamingActive = true
+            if cursorTimer == nil { startCursorBlink() }
+        case .complete:
+            isStreamingActive = levelStates.contains(where: { $0 != .complete })
+            if !isStreamingActive { stopCursorBlink() }
+            bodyText.isSelectable = true
+            if currentLevel == 2 {
+                bodyText.allowsEditingTextAttributes = true
+                bodyText.attributedStringValue = styledExamplesText(content: levelTexts[currentLevel])
+            } else {
+                bodyText.allowsEditingTextAttributes = false
+                bodyText.stringValue = levelTexts[currentLevel]
+            }
         }
+
+        copyButton.isHidden = (levelStates[currentLevel] != .complete)
+        googleButton.isHidden = metaLoading || searchPhrases.isEmpty
+        youtubeButton.isHidden = metaLoading || searchPhrases.isEmpty
         resizeBodyText()
         showNavLabels()
-        scrollToTop()
+        if levelStates[currentLevel] == .complete {
+            scrollToTop()
+        }
     }
 
     private func scrollToTop() {

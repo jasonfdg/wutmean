@@ -5,6 +5,20 @@ import os.log
 
 private let log = OSLog(subsystem: "com.chaukam.wutmean", category: "text-selection")
 
+/// Debug logger that writes to /tmp/wutmean-debug.log for diagnosing text extraction
+private func debugLog(_ message: String) {
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(timestamp)] \(message)\n"
+    let path = "/tmp/wutmean-debug.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8)!)
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let hotkeyListener = HotkeyListener()
@@ -28,7 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
-        if let provider = APIProvider.provider(forModel: config.model),
+        if config.useClaudeCode {
+            explainer = Explainer(cliMode: true)
+        } else if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
         }
@@ -160,7 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Theme.darkMode = config.darkMode
         Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
         Theme.fontSize = CGFloat(config.fontSize)
-        if let provider = APIProvider.provider(forModel: config.model),
+        if config.useClaudeCode {
+            explainer = Explainer(cliMode: true)
+        } else if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
         } else {
@@ -185,11 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if now - hotkeyDebounceTime < 0.25 { return }
         hotkeyDebounceTime = now
 
-        // No API key — show message in popup
+        // No API key and no CLI — show message in popup
         if explainer == nil {
             let panel = makePanel()
             panel.showLoading(text: "Setup", defaultLevel: defaultLevelIndex)
-            panel.showError("No API key configured.\n\nGo to Settings (menu bar) and paste your API key(s) — Anthropic, OpenAI, or Google.")
+            panel.showError("No API key configured.\n\nGo to Settings (menu bar) and paste your API key(s) — Anthropic, OpenAI, or Google.\n\nOr enable \"Use Claude Code CLI\" if you have Claude Code installed.")
             return
         }
 
@@ -205,34 +223,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL: Capture the frontmost app BEFORE we create/show any panel.
         let sourceApp = NSWorkspace.shared.frontmostApplication
         let sourcePID = sourceApp?.processIdentifier
-        os_log("handleHotkey: source app = %{public}@ (pid %d)", log: log, type: .debug,
-               sourceApp?.localizedName ?? "nil", sourcePID ?? -1)
+        debugLog("handleHotkey: source app = \(sourceApp?.localizedName ?? "nil") (pid \(sourcePID ?? -1)), bundleID = \(sourceApp?.bundleIdentifier ?? "nil")")
+        debugLog("handleHotkey: AXIsProcessTrusted = \(AXIsProcessTrusted())")
 
         // Try AX extraction synchronously (fast path)
         let axResult = getSelectedTextViaAXWithContext(sourcePID: sourcePID)
 
         if let axResult, !axResult.text.isEmpty {
-            os_log("handleHotkey: AX extracted %d chars", log: log, type: .debug, axResult.text.count)
+            debugLog("handleHotkey: AX extracted \(axResult.text.count) chars: \(String(axResult.text.prefix(80)))")
             let panel = makePanel()
             let offset = popupStack.dropLast().last?.frame.origin
             panel.showLoading(text: axResult.text, offsetFrom: offset, defaultLevel: defaultLevelIndex)
             startExplain(text: axResult.text, context: axResult.context, on: panel)
         } else {
             // AX failed — try Cmd+C BEFORE showing panel (app must stay frontmost for Chrome)
-            os_log("handleHotkey: AX failed, trying Cmd+C before showing panel", log: log, type: .debug)
+            debugLog("handleHotkey: AX failed (result=\(axResult == nil ? "nil" : "empty")), trying Cmd+C")
 
             Task { @MainActor in
                 if let text = await getSelectedTextViaCmdC(sourcePID: sourcePID), !text.isEmpty {
-                    os_log("handleHotkey: Cmd+C succeeded (%d chars)", log: log, type: .debug, text.count)
+                    debugLog("handleHotkey: Cmd+C succeeded (\(text.count) chars)")
                     let panel = makePanel()
                     let offset = popupStack.dropLast().last?.frame.origin
                     panel.showLoading(text: text, offsetFrom: offset, defaultLevel: defaultLevelIndex)
                     startExplain(text: text, context: nil, on: panel)
                     return
                 }
+                debugLog("handleHotkey: Cmd+C failed, trying cursor position")
 
                 if let result = getTextAtCursorPosition() {
-                    os_log("handleHotkey: cursor extraction succeeded", log: log, type: .debug)
+                    debugLog("handleHotkey: cursor extraction succeeded: \(result.keyword.prefix(80))")
                     let panel = makePanel()
                     let offset = popupStack.dropLast().last?.frame.origin
                     panel.showLoading(text: result.keyword, offsetFrom: offset, defaultLevel: defaultLevelIndex)
@@ -240,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
-                os_log("handleHotkey: all stages failed", log: log, type: .debug)
+                debugLog("handleHotkey: ALL STAGES FAILED — showing error")
                 let panel = makePanel()
                 let offset = popupStack.dropLast().last?.frame.origin
                 panel.showLoading(text: "", offsetFrom: offset, defaultLevel: defaultLevelIndex)
@@ -258,15 +277,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                let result = try await explainer.explain(text: text, context: context, language: language, onStreamToken: { [weak panel] token in
-                    Task { @MainActor in
-                        panel?.appendStreamToken(token)
+                try await explainer.explainParallel(
+                    text: text,
+                    context: context,
+                    language: language,
+                    onLevelToken: { [weak panel] level, token in
+                        Task { @MainActor in
+                            panel?.appendLevelToken(level, token)
+                        }
+                    },
+                    onLevelComplete: { [weak panel] level, text in
+                        Task { @MainActor in
+                            panel?.completeLevelStreaming(level, text: text)
+                        }
+                    },
+                    onMetaComplete: { [weak panel] related, search in
+                        Task { @MainActor in
+                            panel?.setMetaResults(relatedTerms: related, searchPhrases: search)
+                        }
                     }
-                })
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    panel.showResult(result)
-                }
+                )
             } catch is CancellationError {
                 // Rapid press or dismiss, ignore
             } catch {
@@ -316,15 +346,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.explainTask?.cancel()
         panel.explainTask = Task {
             do {
-                let result = try await explainer.explain(text: term, language: language, onStreamToken: { [weak panel] token in
-                    Task { @MainActor in
-                        panel?.appendStreamToken(token)
+                try await explainer.explainParallel(
+                    text: term,
+                    language: language,
+                    onLevelToken: { [weak panel] level, token in
+                        Task { @MainActor in
+                            panel?.appendLevelToken(level, token)
+                        }
+                    },
+                    onLevelComplete: { [weak panel] level, text in
+                        Task { @MainActor in
+                            panel?.completeLevelStreaming(level, text: text)
+                        }
+                    },
+                    onMetaComplete: { [weak panel] related, search in
+                        Task { @MainActor in
+                            panel?.setMetaResults(relatedTerms: related, searchPhrases: search)
+                        }
                     }
-                })
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    panel.showResult(result)
-                }
+                )
             } catch is CancellationError {
                 // ignore
             } catch {
@@ -344,6 +384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func getSelectedTextViaAXWithContext(sourcePID: pid_t?) -> TextExtraction? {
+        debugLog("AX: starting, sourcePID=\(sourcePID ?? -1)")
         let appElement: AXUIElement
         if let pid = sourcePID {
             appElement = AXUIElementCreateApplication(pid)
@@ -351,23 +392,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let systemWide = AXUIElementCreateSystemWide()
             var focusedApp: AnyObject?
             guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success else {
-                os_log("AX: could not get focused app", log: log, type: .debug)
+                debugLog("AX: could not get focused app (no PID fallback failed)")
                 return nil
             }
             appElement = focusedApp as! AXUIElement
         }
 
         var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success else {
-            os_log("AX: could not get focused element", log: log, type: .debug)
+        let focusResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success else {
+            debugLog("AX: could not get focused element, error=\(focusResult.rawValue)")
             return nil
         }
         let element = focusedElement as! AXUIElement
 
+        // Log element role for diagnostics
+        var roleValue: AnyObject?
+        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue) == .success {
+            debugLog("AX: focused element role=\(roleValue as? String ?? "unknown")")
+        }
+
         var selectedText: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
+        let selectResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedText)
+        let selPreview: String = {
+            guard let s = selectedText as? String else { return selectedText == nil ? "nil" : "non-string" }
+            return "'\(s.prefix(80))'"
+        }()
+        debugLog("AX: selectedText result=\(selectResult.rawValue), value=\(selPreview)")
+        guard selectResult == .success,
               let text = selectedText as? String, !text.isEmpty else {
-            os_log("AX: no selected text", log: log, type: .debug)
+            debugLog("AX: no selected text (result=\(selectResult.rawValue))")
             return nil
         }
 
@@ -634,8 +688,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func getSelectedTextViaCmdC(sourcePID: pid_t?) async -> String? {
+        debugLog("Cmd+C: starting, sourcePID=\(sourcePID ?? -1)")
         let pasteboard = NSPasteboard.general
         let oldChangeCount = pasteboard.changeCount
+        debugLog("Cmd+C: old changeCount=\(oldChangeCount)")
 
         let source = CGEventSource(stateID: CGEventSourceStateID.hidSystemState)
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true)
@@ -643,21 +699,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyDown?.flags = CGEventFlags.maskCommand
         keyUp?.flags = CGEventFlags.maskCommand
 
+        debugLog("Cmd+C: CGEventSource=\(source != nil), keyDown=\(keyDown != nil), keyUp=\(keyUp != nil)")
+
         if let pid = sourcePID {
             keyDown?.postToPid(pid)
             keyUp?.postToPid(pid)
+            debugLog("Cmd+C: posted to pid \(pid)")
         } else {
             keyDown?.post(tap: CGEventTapLocation.cgAnnotatedSessionEventTap)
             keyUp?.post(tap: CGEventTapLocation.cgAnnotatedSessionEventTap)
+            debugLog("Cmd+C: posted to session (no pid)")
         }
 
         try? await Task.sleep(nanoseconds: 200_000_000)
 
-        guard pasteboard.changeCount != oldChangeCount else {
-            os_log("Cmd+C: pasteboard unchanged", log: log, type: .debug)
+        let newChangeCount = pasteboard.changeCount
+        debugLog("Cmd+C: new changeCount=\(newChangeCount) (changed=\(newChangeCount != oldChangeCount))")
+        guard newChangeCount != oldChangeCount else {
+            debugLog("Cmd+C: pasteboard unchanged — FAILED")
             return nil
         }
-        return pasteboard.string(forType: .string)
+        let result = pasteboard.string(forType: .string)
+        debugLog("Cmd+C: got text=\(result == nil ? "nil" : "\(result!.count) chars")")
+        return result
     }
 
     // MARK: - Menu actions
