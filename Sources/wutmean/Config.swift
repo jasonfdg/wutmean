@@ -16,7 +16,6 @@ struct Config {
     let darkMode: Bool
     let fontFamily: String
     let fontSize: Int
-    let useClaudeCode: Bool
 
     static let configDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/wutmean")
@@ -77,8 +76,7 @@ struct Config {
             outputLanguage: json["output_language"] as? String ?? "English",
             darkMode: json["dark_mode"] as? Bool ?? true,
             fontFamily: json["font_family"] as? String ?? "system-mono",
-            fontSize: json["font_size"] as? Int ?? 12,
-            useClaudeCode: json["use_claude_code"] as? Bool ?? false
+            fontSize: json["font_size"] as? Int ?? 12
         )
     }
 
@@ -95,8 +93,7 @@ struct Config {
             "output_language": config.outputLanguage,
             "dark_mode": config.darkMode,
             "font_family": config.fontFamily,
-            "font_size": config.fontSize,
-            "use_claude_code": config.useClaudeCode
+            "font_size": config.fontSize
         ]
         if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: configFile)

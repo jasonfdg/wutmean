@@ -42,9 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
-        if config.useClaudeCode {
-            explainer = Explainer(cliMode: true)
-        } else if let provider = APIProvider.provider(forModel: config.model),
+        if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
         }
@@ -176,9 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Theme.darkMode = config.darkMode
         Theme.fontFamily = FontFamily(rawValue: config.fontFamily) ?? .systemMono
         Theme.fontSize = CGFloat(config.fontSize)
-        if config.useClaudeCode {
-            explainer = Explainer(cliMode: true)
-        } else if let provider = APIProvider.provider(forModel: config.model),
+        if let provider = APIProvider.provider(forModel: config.model),
            let key = config.key(for: provider) {
             explainer = Explainer(provider: provider, apiKey: key, model: config.model, maxTokens: config.maxTokens)
         } else {
@@ -207,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if explainer == nil {
             let panel = makePanel()
             panel.showLoading(text: "Setup", defaultLevel: defaultLevelIndex)
-            panel.showError("No API key configured.\n\nGo to Settings (menu bar) and paste your API key(s) — Anthropic, OpenAI, or Google.\n\nOr enable \"Use Claude Code CLI\" if you have Claude Code installed.")
+            panel.showError("No API key configured.\n\nGo to Settings (menu bar) and paste your API key(s) — Anthropic, OpenAI, or Google.")
             return
         }
 

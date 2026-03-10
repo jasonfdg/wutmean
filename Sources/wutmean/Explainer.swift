@@ -5,22 +5,11 @@ actor Explainer {
     private let apiKey: String
     private let model: String
     private let maxTokens: Int
-    private let isCLIMode: Bool
-
     init(provider: APIProvider, apiKey: String, model: String, maxTokens: Int = 4096) {
         self.provider = provider
         self.apiKey = apiKey
         self.model = model
         self.maxTokens = maxTokens
-        self.isCLIMode = false
-    }
-
-    init(cliMode: Bool) {
-        self.provider = .anthropic
-        self.apiKey = ""
-        self.model = ""
-        self.maxTokens = 4096
-        self.isCLIMode = cliMode
     }
 
     struct ExplanationResult {
@@ -374,8 +363,6 @@ actor Explainer {
             contextBlock = ""
         }
 
-        let useCLI = self.isCLIMode
-
         await withTaskGroup(of: Void.self) { group in
             for level in 0..<3 {
                 group.addTask { [self] in
@@ -384,25 +371,18 @@ actor Explainer {
                         let prompt = await self.buildLevelPrompt(level: level, text: truncatedText, context: contextBlock, language: language)
                         let tag = "level_\(level + 1)"
 
-                        let fullText: String
-                        if useCLI {
-                            fullText = try await self.streamCLILevel(prompt: prompt, tag: tag) { token in
-                                onLevelToken(level, token)
-                            }
-                        } else {
-                            let request = try await self.buildRequest(prompt: prompt)
-                            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                        let request = try await self.buildRequest(prompt: prompt)
+                        let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-                            guard let httpResponse = response as? HTTPURLResponse,
-                                  httpResponse.statusCode == 200 else {
-                                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                                onLevelComplete(level, "API error (HTTP \(code))")
-                                return
-                            }
+                        guard let httpResponse = response as? HTTPURLResponse,
+                              httpResponse.statusCode == 200 else {
+                            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                            onLevelComplete(level, "API error (HTTP \(code))")
+                            return
+                        }
 
-                            fullText = try await self.streamWithTag(bytes: bytes, tag: tag) { token in
-                                onLevelToken(level, token)
-                            }
+                        let fullText = try await self.streamWithTag(bytes: bytes, tag: tag) { token in
+                            onLevelToken(level, token)
                         }
 
                         let content = await self.extractTagContent(from: fullText, tag: tag)
@@ -421,21 +401,16 @@ actor Explainer {
                     try Task.checkCancellation()
                     let prompt = await self.buildMetaPrompt(text: truncatedText, context: contextBlock, language: language)
 
-                    let fullText: String
-                    if useCLI {
-                        fullText = try await self.collectCLIResponse(prompt: prompt)
-                    } else {
-                        let request = try await self.buildRequest(prompt: prompt)
-                        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let request = try await self.buildRequest(prompt: prompt)
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-                        guard let httpResponse = response as? HTTPURLResponse,
-                              httpResponse.statusCode == 200 else {
-                            onMetaComplete([], [])
-                            return
-                        }
-
-                        fullText = try await self.collectResponse(bytes: bytes)
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          httpResponse.statusCode == 200 else {
+                        onMetaComplete([], [])
+                        return
                     }
+
+                    let fullText = try await self.collectResponse(bytes: bytes)
 
                     let meta = await self.parseMetaResponse(from: fullText)
                     onMetaComplete(meta.relatedTerms, meta.searchPhrases)
@@ -561,114 +536,6 @@ actor Explainer {
             fullText += delta
         }
         return fullText
-    }
-
-    // MARK: - Claude Code CLI streaming
-
-    /// Build environment for claude CLI subprocess.
-    /// Strips Claude Code session markers to avoid "nested session" errors.
-    private static func cleanEnvironment() -> [String: String] {
-        let blockedKeys: Set<String> = [
-            "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
-            "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
-        ]
-        return ProcessInfo.processInfo.environment.filter { !blockedKeys.contains($0.key) }
-    }
-
-    private static let claudeCLIPath: String = {
-        let candidates = [
-            "\(NSHomeDirectory())/.local/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude"
-        ]
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) { return path }
-        }
-        return "claude"  // fallback to PATH
-    }()
-
-    private func streamCLILevel(
-        prompt: String,
-        tag: String,
-        onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: Self.claudeCLIPath)
-        process.arguments = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "1", "--model", "sonnet"]
-        process.environment = Self.cleanEnvironment()
-        process.currentDirectoryURL = URL(fileURLWithPath: "/tmp")
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            throw ExplainerError.networkError("Claude Code CLI not found. Install it from https://claude.ai/cli")
-        }
-
-        var fullText = ""
-        var streamedLength = 0
-        var hitClose = false
-
-        let handle = pipe.fileHandleForReading
-        for try await line in handle.bytes.lines {
-            try Task.checkCancellation()
-
-            guard let data = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-
-            // stream-json format: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
-            var text: String?
-            if let type = json["type"] as? String,
-               type == "content_block_delta",
-               let delta = json["delta"] as? [String: Any],
-               let t = delta["text"] as? String {
-                text = t
-            }
-            // Fallback: direct text field
-            if text == nil, let t = json["text"] as? String {
-                text = t
-            }
-
-            guard let delta = text else { continue }
-            fullText += delta
-            streamTagContent(fullText: fullText, tag: tag, streamedLength: &streamedLength, hitClose: &hitClose, onToken: onToken)
-        }
-
-        process.waitUntilExit()
-        if process.terminationStatus != 0 && fullText.isEmpty {
-            throw ExplainerError.apiError(statusCode: Int(process.terminationStatus), message: "Claude CLI error (exit \(process.terminationStatus))")
-        }
-
-        return fullText
-    }
-
-    private func collectCLIResponse(prompt: String) async throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: Self.claudeCLIPath)
-        process.arguments = ["-p", prompt, "--output-format", "text", "--max-turns", "1", "--model", "sonnet"]
-        process.environment = Self.cleanEnvironment()
-        process.currentDirectoryURL = URL(fileURLWithPath: "/tmp")
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            throw ExplainerError.networkError("Claude Code CLI not found.")
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { _ in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let text = String(data: data, encoding: .utf8) ?? ""
-                continuation.resume(returning: text)
-            }
-        }
     }
 
     // MARK: - Parallel prompt builders

@@ -22,15 +22,10 @@ final class SettingsPanel: NSPanel {
     private let themePopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let hotkeyButton = NSButton()
     private let doubleTapCheckbox = NSButton(checkboxWithTitle: "Double-tap", target: nil, action: nil)
-    private let claudeCodeCheckbox = NSButton(checkboxWithTitle: "Use Claude Code CLI (no API key needed)", target: nil, action: nil)
-
     private var containerView: NSView!
     private var settingsLabels: [NSTextField] = []
     private var sectionHeaders: [NSTextField] = []
     private var dividers: [NSView] = []
-    private var cliCardView: NSView!
-    private var cliLabel: NSTextField!
-    private var cliSubtitle: NSTextField!
     private var modelLabel: NSTextField!
     private var hintLabel: NSTextField!
     private var saveButton: NSButton!
@@ -100,47 +95,7 @@ final class SettingsPanel: NSPanel {
 
         // ── PROVIDER section ──
         addSectionHeader("PROVIDER", x: lx, y: y, to: container)
-        y -= 6
-
-        // Claude Code CLI card
-        let cardH: CGFloat = 42
-        let cardY = y - cardH      // card bottom
-        let card = NSView(frame: NSRect(x: lx, y: cardY, width: 400, height: cardH))
-        card.wantsLayer = true
-        card.layer?.cornerRadius = 6
-        card.layer?.borderWidth = 1
-        container.addSubview(card)
-        self.cliCardView = card
-
-        // Accent stripe on left
-        let stripe = NSView(frame: NSRect(x: 0, y: 0, width: 3, height: cardH))
-        stripe.wantsLayer = true
-        stripe.layer?.backgroundColor = Theme.accent.cgColor
-        stripe.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        stripe.layer?.cornerRadius = 6
-        card.addSubview(stripe)
-
-        // Checkbox with empty title + separate orange label (NSButton ignores attributedTitle foreground in dark mode)
-        claudeCodeCheckbox.title = ""
-        claudeCodeCheckbox.frame = NSRect(x: 12, y: cardH - 26, width: 18, height: 20)
-        claudeCodeCheckbox.target = self
-        claudeCodeCheckbox.action = #selector(claudeCodeToggled)
-        card.addSubview(claudeCodeCheckbox)
-
-        let cliLbl = NSTextField(labelWithString: "Use Claude Code CLI")
-        cliLbl.font = Theme.fixedFont(size: 12, weight: .semibold)
-        cliLbl.textColor = Theme.accent
-        cliLbl.frame = NSRect(x: 32, y: cardH - 25, width: 260, height: 18)
-        card.addSubview(cliLbl)
-        self.cliLabel = cliLbl
-
-        let subtitle = NSTextField(labelWithString: "No API key needed — uses your local Claude installation")
-        subtitle.font = Theme.fixedFont(size: 10, weight: .regular)
-        subtitle.frame = NSRect(x: 32, y: 3, width: 360, height: 14)
-        card.addSubview(subtitle)
-        self.cliSubtitle = subtitle
-
-        y = cardY - 30  // gap below card before API key rows
+        y -= 24
 
         // API Key rows
         let providers: [APIProvider] = [.anthropic, .openai, .google]
@@ -373,21 +328,6 @@ final class SettingsPanel: NSPanel {
             div.layer?.backgroundColor = Theme.separator.cgColor
         }
 
-        // Claude Code CLI card — accent border + subtle fill
-        let cardBorderColor = Theme.darkMode
-            ? Theme.accent.withAlphaComponent(0.3)
-            : Theme.accent.withAlphaComponent(0.2)
-        cliCardView.layer?.backgroundColor = Theme.darkMode
-            ? NSColor(red: 0.15, green: 0.12, blue: 0.08, alpha: 1).cgColor
-            : NSColor(red: 1.0, green: 0.96, blue: 0.90, alpha: 1).cgColor
-        cliCardView.layer?.borderColor = cardBorderColor.cgColor
-
-        // Orange CLI label + accent checkbox glyph
-        cliLabel.textColor = Theme.accent
-        cliLabel.font = Theme.fixedFont(size: 12, weight: .semibold)
-        claudeCodeCheckbox.contentTintColor = Theme.accent
-        cliSubtitle.textColor = Theme.textTertiary
-
         // Model label
         modelLabel.textColor = Theme.textSecondary
 
@@ -411,29 +351,6 @@ final class SettingsPanel: NSPanel {
 
         cancelButton.layer?.backgroundColor = Theme.buttonSecondaryBackground.cgColor
         cancelButton.contentTintColor = Theme.textPrimary
-    }
-
-    // MARK: - Claude Code toggle
-
-    @objc private func claudeCodeToggled() {
-        let useCLI = claudeCodeCheckbox.state == .on
-        let dim: CGFloat = useCLI ? 0.35 : 1.0
-        // Grey out API key fields, provider labels, and model when CLI is enabled
-        for (i, row) in keyRows.enumerated() {
-            row.secureField.isEnabled = !useCLI
-            row.plainField.isEnabled = !useCLI
-            row.eyeButton.isEnabled = !useCLI
-            row.secureField.alphaValue = dim
-            row.plainField.alphaValue = dim
-            row.eyeButton.alphaValue = dim
-            // Grey out the provider label (stored in settingsLabels, first N entries are provider labels)
-            if i < settingsLabels.count {
-                settingsLabels[i].alphaValue = dim
-            }
-        }
-        modelPopup.isEnabled = !useCLI
-        modelPopup.alphaValue = dim
-        modelLabel.alphaValue = dim
     }
 
     // MARK: - Font live preview
@@ -472,8 +389,6 @@ final class SettingsPanel: NSPanel {
             row.plainField.font = font
             row.label.font = Theme.fixedFont(size: 9, weight: .medium)
         }
-        cliLabel.font = Theme.fixedFont(size: 12, weight: .semibold)
-        cliSubtitle.font = Theme.fixedFont(size: 10, weight: .regular)
         modelPopup.font = font
         fontPopup.font = font
         fontSizeLabel.font = Theme.fixedFont(size: 12, weight: .medium)
@@ -611,10 +526,6 @@ final class SettingsPanel: NSPanel {
         hotkeyButton.title = recordedKeyName
         doubleTapCheckbox.state = config.hotkeyDoubleTap ? .on : .off
 
-        // Claude Code CLI checkbox
-        claudeCodeCheckbox.state = config.useClaudeCode ? .on : .off
-        claudeCodeToggled()  // Apply greyed-out state
-
         // Load cached models first
         let cached = Config.loadModelsCache()
         var models: [APIProvider: [String]] = [:]
@@ -727,8 +638,7 @@ final class SettingsPanel: NSPanel {
             outputLanguage: language,
             darkMode: isDarkMode,
             fontFamily: selectedFont.rawValue,
-            fontSize: Int(fontSizeSlider.doubleValue),
-            useClaudeCode: claudeCodeCheckbox.state == .on
+            fontSize: Int(fontSizeSlider.doubleValue)
         )
         onSave?(config)
 
